@@ -1,5 +1,7 @@
 import logging
 import time
+from logging.handlers import RotatingFileHandler
+from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
@@ -7,12 +9,27 @@ import os
 
 load_dotenv()
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(name)s — %(message)s",
+# Log to both stdout AND backend.log (10MB rotation, keep 3 backups)
+LOG_FILE = Path(__file__).parent / "backend.log"
+_fmt = logging.Formatter(
+    "%(asctime)s [%(levelname)s] %(name)s — %(message)s",
     datefmt="%Y-%m-%d %H:%M:%S",
 )
+_root = logging.getLogger()
+_root.setLevel(logging.INFO)
+# Clear default handlers to avoid duplicate logs
+_root.handlers.clear()
+# Console handler
+_console = logging.StreamHandler()
+_console.setFormatter(_fmt)
+_root.addHandler(_console)
+# File handler (rotating)
+_file = RotatingFileHandler(LOG_FILE, maxBytes=10_000_000, backupCount=3, encoding="utf-8")
+_file.setFormatter(_fmt)
+_root.addHandler(_file)
+
 logger = logging.getLogger("jobpilot")
+logger.info("Logging to %s", LOG_FILE)
 
 from database import engine, Base
 import models  # noqa: F401

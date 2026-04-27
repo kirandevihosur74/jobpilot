@@ -34,6 +34,7 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
+backend/backend.log*
 # Added by code-review-graph
 .code-review-graph/
 

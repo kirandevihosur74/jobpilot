@@ -1,13 +1,24 @@
 import logging
 import os
 import json
-from fastapi import APIRouter, HTTPException, UploadFile, File, Form
+import shutil
+from pathlib import Path
+from fastapi import APIRouter, HTTPException, UploadFile, File, Form, Depends
+from fastapi.responses import FileResponse
 import openai
 from docx import Document
 import io
+from sqlalchemy.orm import Session
+from database import get_db
+from models import UserPrefs
 
 logger = logging.getLogger("jobpilot.resume")
 router = APIRouter(prefix="/api/resume", tags=["resume"])
+
+# Resume upload directory
+UPLOAD_DIR = Path(__file__).parent.parent / "uploads"
+UPLOAD_DIR.mkdir(exist_ok=True)
+ALLOWED_EXT = {".pdf", ".docx", ".doc", ".txt"}
 
 _client = None
 
@@ -105,3 +116,90 @@ Return ONLY raw JSON (no markdown):
     except openai.APIError as e:
         logger.error("TokenRouter API error (resume tailor): %s", e)
         raise HTTPException(status_code=502, detail=str(e))
+
+
+def _extract_pdf_text(path: Path) -> str:
+    """Extract text from PDF for resume_context auto-population."""
+    try:
+        from pypdf import PdfReader
+        reader = PdfReader(str(path))
+        return "\n".join(p.extract_text() or "" for p in reader.pages)
+    except Exception as e:
+        logger.warning("PDF text extract failed: %s", e)
+        return ""
+
+
+@router.post("/upload")
+async def upload_resume(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """Upload + persist resume file. Stores path in UserPrefs, returns extracted text."""
+    ext = Path(file.filename or "").suffix.lower()
+    if ext not in ALLOWED_EXT:
+        raise HTTPException(status_code=400, detail=f"Unsupported file type. Allowed: {ALLOWED_EXT}")
+
+    dest_path = UPLOAD_DIR / f"resume{ext}"
+    # Remove any old resume regardless of extension
+    for existing in UPLOAD_DIR.glob("resume.*"):
+        try: existing.unlink()
+        except Exception: pass
+
+    with dest_path.open("wb") as f:
+        shutil.copyfileobj(file.file, f)
+    logger.info("Resume saved: %s (%d bytes)", dest_path, dest_path.stat().st_size)
+
+    # Extract text for context
+    text = ""
+    if ext == ".pdf":
+        text = _extract_pdf_text(dest_path)
+    elif ext == ".docx":
+        try:
+            doc = Document(str(dest_path))
+            text = "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+        except Exception as e:
+            logger.warning("docx extract failed: %s", e)
+    elif ext == ".txt":
+        text = dest_path.read_text(errors="ignore")
+
+    # Save metadata to UserPrefs
+    row = db.query(UserPrefs).first()
+    if not row:
+        row = UserPrefs()
+        db.add(row)
+    row.resume_filename = file.filename or f"resume{ext}"
+    row.resume_file_path = str(dest_path.absolute())
+    if text and not row.resume_context:
+        row.resume_context = text[:8000]
+    db.commit()
+
+    return {
+        "filename": row.resume_filename,
+        "path": row.resume_file_path,
+        "size": dest_path.stat().st_size,
+        "extracted_text_length": len(text),
+        "extracted_text": text[:500],
+    }
+
+
+@router.get("/info")
+def get_resume_info(db: Session = Depends(get_db)):
+    """Return current resume filename + path (no file content)."""
+    row = db.query(UserPrefs).first()
+    if not row or not row.resume_file_path:
+        return {"uploaded": False, "filename": None, "path": None}
+    exists = Path(row.resume_file_path).exists()
+    return {
+        "uploaded": exists,
+        "filename": row.resume_filename,
+        "path": row.resume_file_path if exists else None,
+    }
+
+
+@router.delete("/upload")
+def delete_resume(db: Session = Depends(get_db)):
+    row = db.query(UserPrefs).first()
+    if row and row.resume_file_path:
+        try: Path(row.resume_file_path).unlink()
+        except Exception: pass
+        row.resume_filename = ""
+        row.resume_file_path = ""
+        db.commit()
+    return {"ok": True}

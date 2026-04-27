@@ -25,6 +25,8 @@ def _to_dict(row: UserPrefs) -> dict:
         "skills": json.loads(row.skills) if row.skills else [],
         "targetCompanies": row.target_companies or "",
         "resumeContext": row.resume_context or "",
+        "resumeFilename": row.resume_filename or "",
+        "hasResume": bool(row.resume_file_path),
     }
 
 
@@ -32,7 +34,7 @@ def _to_dict(row: UserPrefs) -> dict:
 def get_prefs(db: Session = Depends(get_db)):
     row = db.query(UserPrefs).first()
     if not row:
-        return {"role": "", "location": "", "skills": [], "targetCompanies": "", "resumeContext": ""}
+        return {"role": "", "location": "", "skills": [], "targetCompanies": "", "resumeContext": "", "resumeFilename": "", "hasResume": False}
     return _to_dict(row)
 
 

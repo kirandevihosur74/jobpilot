@@ -37,6 +37,9 @@ npm-debug.log*
 # Added by code-review-graph
 .code-review-graph/
 
+# Uploaded resume files
+backend/uploads/
+
 # MCP config (contains API keys)
 .mcp.json
 

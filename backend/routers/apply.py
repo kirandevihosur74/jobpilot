@@ -5,10 +5,14 @@ import logging
 import os
 import uuid
 
-from fastapi import APIRouter, HTTPException
+import httpx
+from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from playwright.async_api import async_playwright, Page
 import openai
+from sqlalchemy.orm import Session
+from database import get_db
+from models import UserPrefs
 
 logger = logging.getLogger("jobpilot.apply")
 router = APIRouter(prefix="/api/apply", tags=["apply"])
@@ -749,11 +753,28 @@ async def _take_session_screenshot(bsession, session: dict):
         logger.debug("screenshot failed: %s", e)
 
 
+def _get_resume_path() -> str | None:
+    """Look up the uploaded resume file path from UserPrefs."""
+    from database import SessionLocal
+    db = SessionLocal()
+    try:
+        row = db.query(UserPrefs).first()
+        if row and row.resume_file_path:
+            from pathlib import Path
+            if Path(row.resume_file_path).exists():
+                return row.resume_file_path
+    finally:
+        db.close()
+    return None
+
+
 async def _run_apply_v2(session_id: str, job_url: str, job: dict, prefs: dict):
     """Universal apply runner using browser-use (vision + DOM hybrid)."""
     session = _sessions[session_id]
     confirm_event: asyncio.Event = session["_confirm_event"]
     abort_event: asyncio.Event = session["_abort_event"]
+    resume_path = _get_resume_path()
+    logger.info("[%s] Resume path: %s", session_id, resume_path or "NONE — applying without resume upload")
 
     try:
         from browser_use import Agent, BrowserProfile, BrowserSession
@@ -770,21 +791,59 @@ async def _run_apply_v2(session_id: str, job_url: str, job: dict, prefs: dict):
         return
 
     # TokenRouter (OpenAI-compatible proxy → Anthropic). Anthropic rejects strict JSON
-    # schema fields like `minimum`, `default`, `minItems` that browser-use auto-generates.
-    # Workaround: skip forced structured output + inject schema into system prompt instead.
+    # schema fields like `minimum`, `maximum`, `default` that browser-use auto-generates
+    # in its tool schemas. Strip them from outgoing requests via httpx hook so we can
+    # keep forced structured output (which gives reliable parseable JSON back).
+    def _strip_anthropic_incompat(obj):
+        if isinstance(obj, dict):
+            for k in ("minimum", "maximum", "exclusiveMinimum", "exclusiveMaximum",
+                      "multipleOf", "default", "format"):
+                obj.pop(k, None)
+            for v in obj.values():
+                _strip_anthropic_incompat(v)
+        elif isinstance(obj, list):
+            for v in obj:
+                _strip_anthropic_incompat(v)
+
+    async def _request_hook(request: httpx.Request):
+        if not request.url.path.endswith("/chat/completions"):
+            return
+        if not request.content:
+            return
+        try:
+            body = json.loads(request.content)
+            _strip_anthropic_incompat(body)
+            new_body = json.dumps(body).encode()
+            request.stream = httpx._content.ByteStream(new_body)
+            request.headers["content-length"] = str(len(new_body))
+        except Exception as e:
+            logger.debug("schema strip hook failed: %s", e)
+
+    sanitized_http = httpx.AsyncClient(
+        event_hooks={"request": [_request_hook]},
+        timeout=httpx.Timeout(120.0),
+    )
     llm = ChatOpenAI(
         model="anthropic/claude-sonnet-4.6",
         api_key=tk_key,
         base_url=tk_url,
-        dont_force_structured_output=True,
-        add_schema_to_system_prompt=True,
-        remove_min_items_from_schema=True,
-        remove_defaults_from_schema=True,
+        http_client=sanitized_http,
         temperature=0.2,
     )
-    logger.info("Using TokenRouter ChatOpenAI (anthropic/claude-sonnet-4.6, schema-strict off)")
+    logger.info("TokenRouter LLM ready (Claude Sonnet 4.6, schema sanitizer active)")
 
     candidate = _build_candidate_brief(prefs)
+    resume_instruction = (
+        f"\n\nRESUME FILE: {resume_path}\n"
+        "STEP 1 (MOST IMPORTANT): Upload the resume file FIRST. "
+        "Find the file upload field (usually labeled 'Resume', 'CV', 'Upload Resume', or has a paperclip icon) "
+        "and upload the file at the path above. Most ATS systems (Ashby, Greenhouse, Lever) will auto-fill "
+        "name, email, phone, work history, and education from the resume parser — saving you manual work. "
+        "Wait 3-5 seconds after upload for parsing to complete, then verify the auto-filled fields."
+        if resume_path
+        else "\n\nNote: No resume file uploaded. Skip resume upload fields — leave empty (user will handle manually)."
+    )
+
     fill_task = f"""You are filling out a job application on behalf of a candidate. Goal: navigate to the job URL, find the apply form, and fill EVERY field accurately. Stop just before submitting — the user will review.
 
 JOB URL: {job_url}
@@ -792,15 +851,16 @@ JOB: {job.get('title', '')} at {job.get('company', '')}
 
 CANDIDATE INFO:
 {candidate}
+{resume_instruction}
 
 INSTRUCTIONS:
 1. Navigate to the job URL.
 2. If there is an "Apply" / "Apply for this job" button, click it to open the application form.
-3. Fill EVERY required form field with the appropriate candidate info.
-4. For dropdowns, pick the option that best matches candidate info.
-5. Demographic / EEO / diversity questions: choose "Decline to answer" or equivalent.
-6. "How did you hear about us?" → "LinkedIn" or "Job Board".
-7. Skip resume file upload fields — leave empty (user will handle manually).
+3. {('Upload the resume file FIRST (see RESUME FILE above), then verify auto-filled fields.' if resume_path else 'Skip resume upload fields.')}
+4. Fill EVERY remaining required form field with the appropriate candidate info.
+5. For dropdowns, pick the option that best matches candidate info.
+6. Demographic / EEO / diversity questions: choose "Decline to answer" or equivalent.
+7. "How did you hear about us?" → "LinkedIn" or "Job Board".
 8. Cover letter field: write a brief 3-sentence note based on the candidate's bio.
 9. Multi-step forms: click Next/Continue until you reach the final review/submit page.
 10. STOP at the final submit page. DO NOT click "Submit Application" / "Submit" / "Send".
@@ -837,6 +897,7 @@ If you hit a login wall, captcha, or cannot proceed, call done(success=false) wi
             max_failures=3,
             use_vision=True,
             max_actions_per_step=3,
+            available_file_paths=[resume_path] if resume_path else None,
         )
 
         session["status"] = STATUS["FILLING"]

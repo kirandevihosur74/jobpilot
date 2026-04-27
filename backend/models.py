@@ -27,6 +27,8 @@ class UserPrefs(Base):
     skills = Column(Text, default="")        # JSON array string
     target_companies = Column(String, default="")
     resume_context = Column(Text, default="")
+    resume_filename = Column(String, default="")     # uploaded resume original filename
+    resume_file_path = Column(String, default="")    # absolute path to stored resume file
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
 
 class HiringPost(Base):

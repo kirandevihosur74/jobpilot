@@ -230,6 +230,85 @@ function Input({ value, onChange, placeholder, type = "text" }) {
   );
 }
 
+// ─── Resume Uploader ─────────────────────────────────────────────────────────
+function ResumeUploader({ prefs, onUploaded }) {
+  const [uploading, setUploading] = useState(false);
+  const [filename, setFilename]   = useState(prefs?.resumeFilename || "");
+  const [error, setError]         = useState(null);
+  const fileRef = useRef(null);
+
+  const handleFile = async (file) => {
+    if (!file) return;
+    setUploading(true); setError(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch(`${API_BASE}/api/resume/upload`, { method: "POST", body: fd });
+      if (!res.ok) throw new Error((await res.json()).detail || "Upload failed");
+      const data = await res.json();
+      setFilename(data.filename);
+      onUploaded?.(data);
+    } catch (e) { setError(e.message); }
+    setUploading(false);
+  };
+
+  const handleDelete = async () => {
+    if (!confirm("Delete uploaded resume?")) return;
+    try {
+      await fetch(`${API_BASE}/api/resume/upload`, { method: "DELETE" });
+      setFilename("");
+      onUploaded?.({ filename: "", extracted_text: "" });
+    } catch (e) { setError(e.message); }
+  };
+
+  return (
+    <div style={{ marginTop: 5 }}>
+      <input
+        ref={fileRef}
+        type="file"
+        accept=".pdf,.docx,.doc,.txt"
+        style={{ display: "none" }}
+        onChange={e => handleFile(e.target.files[0])}
+      />
+      {filename ? (
+        <div style={{
+          display: "flex", alignItems: "center", gap: 8,
+          padding: "8px 12px", borderRadius: 5,
+          background: C.gnDim, border: `1px solid ${C.green}`,
+        }}>
+          <FileText size={14} color={C.green} />
+          <span style={{ flex: 1, fontSize: 12, color: C.text, fontFamily: "var(--font-mono)" }}>
+            {filename}
+          </span>
+          <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{
+            fontSize: 11, padding: "3px 8px", borderRadius: 4, cursor: "pointer",
+            background: C.bg2, border: `1px solid ${C.border}`, color: C.text2,
+          }}>Replace</button>
+          <button onClick={handleDelete} style={{
+            fontSize: 11, padding: "3px 8px", borderRadius: 4, cursor: "pointer",
+            background: "transparent", border: `1px solid ${C.red}`, color: C.red,
+          }}>Remove</button>
+        </div>
+      ) : (
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={uploading}
+          style={{
+            display: "flex", alignItems: "center", gap: 8,
+            padding: "10px 14px", borderRadius: 5, width: "100%",
+            background: C.bg2, border: `1px dashed ${C.border2}`,
+            color: C.text2, cursor: "pointer", fontSize: 12,
+          }}
+        >
+          {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+          {uploading ? "Uploading..." : "Upload resume (PDF / DOCX / TXT)"}
+        </button>
+      )}
+      {error && <div style={{ fontSize: 11, color: C.red, marginTop: 5 }}>{error}</div>}
+    </div>
+  );
+}
+
 // ─── Preferences Modal ───────────────────────────────────────────────────────
 function PreferencesModal({ prefs, onSave, onClose, canClose }) {
   const [form, setForm] = useState({ ...prefs, skills: prefs.skills?.join(", ") || "" });
@@ -288,6 +367,18 @@ function PreferencesModal({ prefs, onSave, onClose, canClose }) {
             </div>
           </div>
         ))}
+
+        {/* Resume file upload */}
+        <div style={{ marginBottom: 14 }}>
+          <Label>Resume file (PDF / DOCX) — used for auto-apply</Label>
+          <ResumeUploader prefs={prefs} onUploaded={info => {
+            update("resumeFilename", info.filename);
+            update("hasResume", true);
+            if (info.extracted_text && !form.resumeContext) {
+              update("resumeContext", info.extracted_text.slice(0, 4000));
+            }
+          }} />
+        </div>
 
         <div style={{ marginBottom: 22 }}>
           <Label>Resume context / bio</Label>

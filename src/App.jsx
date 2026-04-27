@@ -230,35 +230,50 @@ function Input({ value, onChange, placeholder, type = "text" }) {
   );
 }
 
-// ─── Resume Uploader ─────────────────────────────────────────────────────────
-function ResumeUploader({ prefs, onUploaded }) {
+// ─── Resume Library (multi-resume with role tags) ───────────────────────────
+function ResumeLibrary() {
+  const [resumes, setResumes] = useState([]);
   const [uploading, setUploading] = useState(false);
-  const [filename, setFilename]   = useState(prefs?.resumeFilename || "");
-  const [error, setError]         = useState(null);
+  const [roleTag, setRoleTag] = useState("");
+  const [error, setError] = useState(null);
   const fileRef = useRef(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const data = await fetch(`${API_BASE}/api/resume/library`).then(r => r.json());
+      setResumes(data.resumes || []);
+    } catch (e) { setError(e.message); }
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
 
   const handleFile = async (file) => {
     if (!file) return;
+    if (!roleTag.trim()) { setError("Set a role tag first (e.g. SDE, AI Engineer, FDE)"); return; }
     setUploading(true); setError(null);
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const res = await fetch(`${API_BASE}/api/resume/upload`, { method: "POST", body: fd });
+      fd.append("role_tag", roleTag.trim());
+      fd.append("is_default", resumes.length === 0 ? "true" : "false");
+      const res = await fetch(`${API_BASE}/api/resume/library/upload`, { method: "POST", body: fd });
       if (!res.ok) throw new Error((await res.json()).detail || "Upload failed");
-      const data = await res.json();
-      setFilename(data.filename);
-      onUploaded?.(data);
+      setRoleTag("");
+      await refresh();
     } catch (e) { setError(e.message); }
     setUploading(false);
+    if (fileRef.current) fileRef.current.value = "";
   };
 
-  const handleDelete = async () => {
-    if (!confirm("Delete uploaded resume?")) return;
-    try {
-      await fetch(`${API_BASE}/api/resume/upload`, { method: "DELETE" });
-      setFilename("");
-      onUploaded?.({ filename: "", extracted_text: "" });
-    } catch (e) { setError(e.message); }
+  const handleDelete = async (id) => {
+    if (!confirm("Delete this resume?")) return;
+    await fetch(`${API_BASE}/api/resume/library/${id}`, { method: "DELETE" });
+    refresh();
+  };
+
+  const setDefault = async (id) => {
+    await fetch(`${API_BASE}/api/resume/library/${id}/default`, { method: "POST" });
+    refresh();
   };
 
   return (
@@ -270,41 +285,87 @@ function ResumeUploader({ prefs, onUploaded }) {
         style={{ display: "none" }}
         onChange={e => handleFile(e.target.files[0])}
       />
-      {filename ? (
-        <div style={{
-          display: "flex", alignItems: "center", gap: 8,
-          padding: "8px 12px", borderRadius: 5,
-          background: C.gnDim, border: `1px solid ${C.green}`,
-        }}>
-          <FileText size={14} color={C.green} />
-          <span style={{ flex: 1, fontSize: 12, color: C.text, fontFamily: "var(--font-mono)" }}>
-            {filename}
-          </span>
-          <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{
-            fontSize: 11, padding: "3px 8px", borderRadius: 4, cursor: "pointer",
-            background: C.bg2, border: `1px solid ${C.border}`, color: C.text2,
-          }}>Replace</button>
-          <button onClick={handleDelete} style={{
-            fontSize: 11, padding: "3px 8px", borderRadius: 4, cursor: "pointer",
-            background: "transparent", border: `1px solid ${C.red}`, color: C.red,
-          }}>Remove</button>
-        </div>
-      ) : (
+
+      {/* Upload row */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+        <input
+          type="text"
+          value={roleTag}
+          onChange={e => setRoleTag(e.target.value)}
+          placeholder="Role tag (e.g. SDE, AI Engineer, FDE)"
+          style={{
+            flex: 1, padding: "8px 10px", borderRadius: 5, fontSize: 12,
+            background: C.bg, border: `1px solid ${C.border2}`, color: C.text,
+            fontFamily: "var(--font-mono)", outline: "none",
+          }}
+        />
         <button
           onClick={() => fileRef.current?.click()}
-          disabled={uploading}
+          disabled={uploading || !roleTag.trim()}
           style={{
-            display: "flex", alignItems: "center", gap: 8,
-            padding: "10px 14px", borderRadius: 5, width: "100%",
-            background: C.bg2, border: `1px dashed ${C.border2}`,
-            color: C.text2, cursor: "pointer", fontSize: 12,
+            padding: "8px 14px", borderRadius: 5, fontSize: 12, cursor: roleTag.trim() ? "pointer" : "not-allowed",
+            background: C.aDim, border: `1px solid ${C.accent}`, color: C.accent,
+            display: "flex", alignItems: "center", gap: 5, fontWeight: 600,
+            opacity: roleTag.trim() ? 1 : 0.5,
           }}
         >
-          {uploading ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
-          {uploading ? "Uploading..." : "Upload resume (PDF / DOCX / TXT)"}
+          {uploading ? <Loader2 size={12} className="animate-spin" /> : <Upload size={12} />}
+          {uploading ? "Uploading..." : "Add Resume"}
         </button>
+      </div>
+
+      {/* List of uploaded resumes */}
+      {resumes.length === 0 ? (
+        <div style={{
+          padding: 14, borderRadius: 5, border: `1px dashed ${C.border2}`,
+          textAlign: "center", color: C.text3, fontSize: 12,
+        }}>
+          No resumes yet. Tag with a role (SDE, AI Engineer, FDE) and upload — JobPilot picks the best one per job.
+        </div>
+      ) : (
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+          {resumes.map(r => (
+            <div key={r.id} style={{
+              display: "flex", alignItems: "center", gap: 8,
+              padding: "8px 12px", borderRadius: 5,
+              background: r.is_default ? C.gnDim : C.bg2,
+              border: `1px solid ${r.is_default ? C.green : C.border}`,
+            }}>
+              <FileText size={13} color={r.is_default ? C.green : C.text2} />
+              <span style={{
+                fontSize: 11, padding: "2px 7px", borderRadius: 4,
+                background: C.bg, color: C.gold, fontFamily: "var(--font-mono)",
+                border: `1px solid ${C.gBorder}`,
+              }}>
+                {r.role_tag || "untagged"}
+              </span>
+              <span style={{ flex: 1, fontSize: 12, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {r.filename}
+              </span>
+              {r.is_template && (
+                <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: C.vDim, color: C.violet }}>
+                  TEMPLATE
+                </span>
+              )}
+              {r.is_default ? (
+                <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: C.gnDim, color: C.green }}>
+                  DEFAULT
+                </span>
+              ) : (
+                <button onClick={() => setDefault(r.id)} style={{
+                  fontSize: 10, padding: "2px 6px", borderRadius: 3, cursor: "pointer",
+                  background: "transparent", border: `1px solid ${C.border}`, color: C.text2,
+                }}>Set default</button>
+              )}
+              <button onClick={() => handleDelete(r.id)} style={{
+                fontSize: 10, padding: "2px 6px", borderRadius: 3, cursor: "pointer",
+                background: "transparent", border: `1px solid ${C.red}`, color: C.red,
+              }}>Delete</button>
+            </div>
+          ))}
+        </div>
       )}
-      {error && <div style={{ fontSize: 11, color: C.red, marginTop: 5 }}>{error}</div>}
+      {error && <div style={{ fontSize: 11, color: C.red, marginTop: 6 }}>{error}</div>}
     </div>
   );
 }
@@ -368,16 +429,10 @@ function PreferencesModal({ prefs, onSave, onClose, canClose }) {
           </div>
         ))}
 
-        {/* Resume file upload */}
+        {/* Multi-resume library */}
         <div style={{ marginBottom: 14 }}>
-          <Label>Resume file (PDF / DOCX) — used for auto-apply</Label>
-          <ResumeUploader prefs={prefs} onUploaded={info => {
-            update("resumeFilename", info.filename);
-            update("hasResume", true);
-            if (info.extracted_text && !form.resumeContext) {
-              update("resumeContext", info.extracted_text.slice(0, 4000));
-            }
-          }} />
+          <Label>Resume library — tag each by role; auto-apply picks the best match per job</Label>
+          <ResumeLibrary />
         </div>
 
         <div style={{ marginBottom: 22 }}>

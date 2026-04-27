@@ -63,6 +63,21 @@ class StartupJob(Base):
     scraped_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
 
 
+class Resume(Base):
+    """Multi-resume library — user uploads N resumes tagged by role.
+    Auto-apply picks best match per job (or tailors the chosen one)."""
+    __tablename__ = "resumes"
+
+    id            = Column(Integer, primary_key=True, index=True)
+    filename      = Column(String, nullable=False)
+    file_path     = Column(String, nullable=False, unique=True)
+    role_tag      = Column(String, default="", index=True)   # "SDE", "AI Engineer", "FDE", etc.
+    extracted_text = Column(Text, default="")                # for matching + tailoring
+    is_default    = Column(Integer, default=0)               # 1 if fallback when no role match
+    is_template   = Column(Integer, default=0)               # 1 if has {{placeholders}} for tailoring
+    created_at    = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+
 class ApplicationHistory(Base):
     __tablename__ = "history"
 

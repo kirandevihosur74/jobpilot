@@ -768,13 +768,78 @@ def _get_resume_path() -> str | None:
     return None
 
 
+_STARTUP_DOMAINS = ("ashbyhq.com", "boards.greenhouse.io", "jobs.lever.co",
+                    "dover.com/jobs", "job-boards.greenhouse.io")
+
+
+def _is_startup_url(url: str) -> bool:
+    return any(d in (url or "") for d in _STARTUP_DOMAINS)
+
+
+def _pick_library_resume(job_title: str) -> str | None:
+    """Pick best resume from library for the given job title."""
+    try:
+        from routers.resume import _pick_best_resume
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            r = _pick_best_resume(job_title, db)
+            if r and r.file_path:
+                from pathlib import Path
+                if Path(r.file_path).exists():
+                    return r.file_path
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning("library pick-best failed: %s", e)
+    return None
+
+
+def _try_tailor_resume(job: dict) -> str | None:
+    """Tailor DOCX resume for this specific job — returns path to tailored DOCX or None."""
+    try:
+        from routers.resume import tailor_docx_for_job, TailorJobRequest
+        from database import SessionLocal
+        db = SessionLocal()
+        try:
+            result = tailor_docx_for_job(TailorJobRequest(job=job), db=db)
+            return result.get("file_path")
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning("Resume tailoring failed: %s", e)
+        return None
+
+
 async def _run_apply_v2(session_id: str, job_url: str, job: dict, prefs: dict):
-    """Universal apply runner using browser-use (vision + DOM hybrid)."""
+    """Universal apply runner using browser-use (vision + DOM hybrid).
+
+    Resume selection priority:
+      1. Startup job (Ashby/Greenhouse/Lever/Dover URL): pick best from library, NO tailoring
+      2. Non-startup job with library + JD: pick best from library + tailor it
+      3. No library: fall back to generic uploaded resume
+    """
     session = _sessions[session_id]
     confirm_event: asyncio.Event = session["_confirm_event"]
     abort_event: asyncio.Event = session["_abort_event"]
-    resume_path = _get_resume_path()
-    logger.info("[%s] Resume path: %s", session_id, resume_path or "NONE — applying without resume upload")
+
+    is_startup = _is_startup_url(job_url)
+    job_title = job.get("title", "")
+
+    if is_startup:
+        session["status"] = STATUS["STARTING"]
+        session["message"] = "Picking best resume from library…"
+        resume_path = _pick_library_resume(job_title) or _get_resume_path()
+        logger.info("[%s] Startup job — picked resume: %s", session_id, resume_path or "NONE")
+    else:
+        session["status"] = STATUS["STARTING"]
+        session["message"] = "Tailoring resume for this job…"
+        tailored_path = _try_tailor_resume(job) if job.get("description") else None
+        resume_path = tailored_path or _pick_library_resume(job_title) or _get_resume_path()
+        if tailored_path:
+            logger.info("[%s] Using TAILORED resume: %s", session_id, tailored_path)
+        else:
+            logger.info("[%s] Using library/generic resume: %s", session_id, resume_path or "NONE")
 
     try:
         from browser_use import Agent, BrowserProfile, BrowserSession

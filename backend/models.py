@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Text, Float
+from sqlalchemy import Column, Integer, String, DateTime, Text, Float, BigInteger
 from datetime import datetime, timezone
 from database import Base
 
@@ -17,6 +17,49 @@ class ScrapedJob(Base):
     search_role = Column(String, index=True)
     search_location = Column(String)
     scraped_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+
+class UserPrefs(Base):
+    __tablename__ = "user_prefs"
+
+    id = Column(Integer, primary_key=True)
+    role = Column(String, default="")
+    location = Column(String, default="")
+    skills = Column(Text, default="")        # JSON array string
+    target_companies = Column(String, default="")
+    resume_context = Column(Text, default="")
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+class HiringPost(Base):
+    __tablename__ = "hiring_posts"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    activity_id = Column(String, unique=True, index=True)   # LinkedIn activity_id dedup key
+    post_url    = Column(String)
+    text        = Column(Text)
+    author      = Column(String)
+    company     = Column(String)        # poster headline
+    company_name = Column(String)
+    job_title   = Column(String)
+    avatar      = Column(String)
+    posted      = Column(String)
+    posted_ts   = Column(BigInteger, default=0)
+    search_role = Column(String, index=True)
+    search_location = Column(String)
+    scraped_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+
+
+class StartupJob(Base):
+    __tablename__ = "startup_jobs"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    url         = Column(String, unique=True, index=True)
+    title       = Column(String)
+    company     = Column(String)
+    platform    = Column(String)
+    description = Column(Text)
+    search_query = Column(Text)
+    scraped_at  = Column(DateTime, default=lambda: datetime.now(timezone.utc), index=True)
+
 
 class ApplicationHistory(Base):
     __tablename__ = "history"

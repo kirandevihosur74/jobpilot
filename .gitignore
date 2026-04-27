@@ -34,3 +34,11 @@ Thumbs.db
 # Logs
 *.log
 npm-debug.log*
+# Added by code-review-graph
+.code-review-graph/
+
+# MCP config (contains API keys)
+.mcp.json
+
+# Personal Claude Code permissions
+.claude/settings.local.json

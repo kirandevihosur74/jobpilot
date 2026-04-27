@@ -16,7 +16,7 @@ logger = logging.getLogger("jobpilot")
 
 from database import engine, Base
 import models  # noqa: F401
-from routers import jobs, outreach, email, history
+from routers import jobs, outreach, email, history, autofill, resume, apply, prefs
 
 Base.metadata.create_all(bind=engine)
 logger.info("Database tables ensured")
@@ -51,6 +51,10 @@ app.include_router(jobs.router)
 app.include_router(outreach.router)
 app.include_router(email.router)
 app.include_router(history.router)
+app.include_router(autofill.router)
+app.include_router(resume.router)
+app.include_router(apply.router)
+app.include_router(prefs.router)
 
 @app.get("/health")
 def health():

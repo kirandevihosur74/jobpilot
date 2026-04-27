@@ -1,10 +1,11 @@
 import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
-import anthropic
+import openai
 import os
 import json
 import re
+import httpx
 
 from datetime import datetime, timezone, timedelta
 
@@ -18,11 +19,12 @@ _signals_cache: dict[str, tuple[datetime, list]] = {}
 def get_client():
     global _client
     if _client is None:
-        key = os.getenv("ANTHROPIC_API_KEY")
+        key = os.getenv("TOKENROUTER_API_KEY")
+        base_url = os.getenv("TOKENROUTER_BASE_URL", "https://api.tokenrouter.com/v1")
         if not key:
-            raise HTTPException(status_code=500, detail="ANTHROPIC_API_KEY not configured")
-        _client = anthropic.Anthropic(api_key=key)
-        logger.info("Anthropic client initialised")
+            raise HTTPException(status_code=500, detail="TOKENROUTER_API_KEY not configured")
+        _client = openai.OpenAI(api_key=key, base_url=base_url)
+        logger.info("TokenRouter client initialised")
     return _client
 
 class SignalsRequest(BaseModel):
@@ -67,12 +69,12 @@ async def search_signals(req: SignalsRequest):
         "Generate 4-6 realistic, plausible hiring signal examples for this role."
     )
     try:
-        message = get_client().messages.create(
-            model="claude-sonnet-4-5",
+        message = get_client().chat.completions.create(
+            model="anthropic/claude-sonnet-4.6",
             max_tokens=1024,
             messages=[{"role": "user", "content": prompt}],
         )
-        text = "".join(b.text for b in message.content if hasattr(b, "text") and b.text is not None)
+        text = message.choices[0].message.content or ""
         logger.debug("Claude signals raw response: %s", text[:300])
         parsed = _parse_json(text)
         if isinstance(parsed, list) and parsed:
@@ -81,8 +83,8 @@ async def search_signals(req: SignalsRequest):
             return {"signals": parsed, "from_cache": False}
         logger.warning("Could not parse signals response — raw: %s", text[:200])
         return {"signals": []}
-    except anthropic.APIError as e:
-        logger.error("Claude API error (signals): %s", e)
+    except openai.APIError as e:
+        logger.error("TokenRouter API error (signals): %s", e)
         raise HTTPException(status_code=502, detail=str(e))
 
 @router.post("/draft")
@@ -119,18 +121,64 @@ async def generate_draft(req: OutreachRequest):
     )
 
     try:
-        message = get_client().messages.create(
-            model="claude-sonnet-4-5",
+        message = get_client().chat.completions.create(
+            model="anthropic/claude-sonnet-4.6",
             max_tokens=512,
             messages=[{"role": "user", "content": prompt}],
         )
-        text = message.content[0].text
+        text = message.choices[0].message.content or ""
         parsed = _parse_json(text)
         if not parsed or "body" not in parsed:
             logger.error("Failed to parse draft from Claude response")
             raise HTTPException(status_code=422, detail="Could not parse Claude response")
         logger.info("Draft generated successfully")
         return parsed
-    except anthropic.APIError as e:
-        logger.error("Claude API error (draft): %s", e)
+    except openai.APIError as e:
+        logger.error("TokenRouter API error (draft): %s", e)
         raise HTTPException(status_code=502, detail=str(e))
+
+
+def _company_to_domain_candidates(company: str) -> list[str]:
+    """Best-effort domain candidates from company name."""
+    slug = re.sub(r"[^a-z0-9]", "", company.lower())
+    slug_hyphen = re.sub(r"\s+", "-", company.lower().strip())
+    slug_hyphen = re.sub(r"[^a-z0-9\-]", "", slug_hyphen).strip("-")
+    return list(dict.fromkeys([
+        f"{slug}.com", f"{slug}.ai", f"{slug}.io",
+        f"{slug_hyphen}.com", f"{slug_hyphen}.ai",
+    ]))
+
+
+@router.get("/find-email")
+async def find_email(name: str, company: str, domain: str = ""):
+    """Look up a person's work email via Hunter.io Email Finder."""
+    api_key = os.getenv("HUNTER_API_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="HUNTER_API_KEY not configured")
+
+    parts = name.strip().split()
+    if len(parts) < 2:
+        raise HTTPException(status_code=400, detail="Need full name (first + last)")
+    first, last = parts[0], parts[-1]
+
+    domains = [domain] if domain else _company_to_domain_candidates(company)
+    logger.info("Hunter email finder — name=%r company=%r candidates=%s", name, company, domains)
+
+    async with httpx.AsyncClient(timeout=10) as client:
+        for d in domains:
+            try:
+                resp = await client.get(
+                    "https://api.hunter.io/v2/email-finder",
+                    params={"domain": d, "first_name": first, "last_name": last, "api_key": api_key},
+                )
+                data = resp.json()
+                email = (data.get("data") or {}).get("email")
+                score = (data.get("data") or {}).get("score", 0)
+                if email:
+                    logger.info("Hunter found email=%s score=%s domain=%s", email, score, d)
+                    return {"email": email, "score": score, "domain": d, "found": True}
+            except Exception as e:
+                logger.warning("Hunter request failed for domain=%s: %s", d, e)
+
+    logger.info("Hunter: no email found for %r at %r", name, company)
+    return {"email": None, "score": 0, "domain": "", "found": False}

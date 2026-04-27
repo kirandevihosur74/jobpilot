@@ -1,15 +1,40 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import {
-  Search, Zap, Send, Calendar, FileText, RefreshCw, Settings,
-  ChevronRight, ExternalLink, Star, Clock, Building, MapPin,
-  Briefcase, TrendingUp, User, Mail, AlertCircle, CheckCircle,
-  Loader2, X, Plus, ArrowRight, Sparkles, Radio, Eye, Copy,
-  Target, Rocket, Globe, MessageSquare, Shield, ChevronDown,
+  Search, Send, FileText, RefreshCw, Settings,
+  ExternalLink, Star, Clock, Building, MapPin,
+  Briefcase, User, Mail, AlertCircle, CheckCircle,
+  Loader2, X, Sparkles, Copy,
+  Target, Rocket, Globe, MessageSquare, ChevronDown, ClipboardList, Upload,
 } from "lucide-react";
 
 const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
 const STORAGE_KEY = "jobpilot:state";
 
+// ─── CSS vars ───────────────────────────────────────────────────────────────
+const C = {
+  bg:      "var(--bg)",
+  bg2:     "var(--bg-2)",
+  bg3:     "var(--bg-3)",
+  accent:  "var(--accent)",
+  aDim:    "var(--accent-dim)",
+  aBorder: "var(--accent-border)",
+  gold:    "var(--gold)",
+  gDim:    "var(--gold-dim)",
+  gBorder: "var(--gold-border)",
+  violet:  "var(--violet)",
+  vDim:    "var(--violet-dim)",
+  vBorder: "var(--violet-border)",
+  green:   "var(--green)",
+  gnDim:   "var(--green-dim)",
+  red:     "var(--red)",
+  text:    "var(--text)",
+  text2:   "var(--text-2)",
+  text3:   "var(--text-3)",
+  border:  "var(--border)",
+  border2: "var(--border-2)",
+};
+
+// ─── API ─────────────────────────────────────────────────────────────────────
 async function api(path, body) {
   const res = await fetch(`${API_BASE}${path}`, {
     method: body ? "POST" : "GET",
@@ -32,205 +57,595 @@ function saveState(key, value) {
 
 const defaultPrefs = { role: "", location: "", skills: [], resumeContext: "", targetCompanies: "" };
 
-// ─── Score Badge ───
+// ─── Label ───────────────────────────────────────────────────────────────────
+function Label({ children, color = C.text2 }) {
+  return (
+    <span style={{
+      fontFamily: "var(--font-display)",
+      fontSize: 10,
+      fontWeight: 700,
+      letterSpacing: "0.12em",
+      textTransform: "uppercase",
+      color,
+    }}>{children}</span>
+  );
+}
+
+// ─── Score Badge ─────────────────────────────────────────────────────────────
 function ScoreBadge({ score }) {
   const s = parseFloat(score) || 0;
-  const color = s >= 8 ? "#10b981" : s >= 6 ? "#f59e0b" : "#ef4444";
+  const color = s >= 8 ? C.green : s >= 6 ? C.gold : s >= 4 ? C.accent : C.red;
   return (
-    <span className="inline-flex items-center gap-1 rounded-full text-xs font-semibold"
-      style={{ padding: "2px 8px", fontFamily: "monospace", background: color + "18", color, border: `1px solid ${color}33` }}>
-      <Star size={10} fill={color} />{s.toFixed(1)}
+    <span style={{
+      fontFamily: "var(--font-mono)",
+      fontSize: 11,
+      fontWeight: 600,
+      padding: "2px 7px",
+      borderRadius: 3,
+      background: color + "18",
+      color,
+      border: `1px solid ${color}33`,
+      letterSpacing: "-0.02em",
+      whiteSpace: "nowrap",
+    }}>
+      {s.toFixed(1)}
     </span>
   );
 }
 
+// ─── Status Dot ──────────────────────────────────────────────────────────────
 function StatusDot({ status }) {
-  const colors = { sent: "#10b981", draft: "#f59e0b", scheduled: "#6366f1", failed: "#ef4444" };
-  return <span className="inline-block shrink-0 rounded-full" style={{ width: 8, height: 8, background: colors[status] || "#666" }} />;
+  const colors = { sent: C.green, draft: C.gold, scheduled: C.violet, failed: C.red };
+  return (
+    <span style={{
+      display: "inline-block",
+      width: 6, height: 6,
+      borderRadius: "50%",
+      background: colors[status] || C.text3,
+      flexShrink: 0,
+    }} />
+  );
 }
 
-function GlowCard({ children, active, onClick, color = "#22d3ee", className = "" }) {
+// ─── Divider Line ────────────────────────────────────────────────────────────
+function Divider({ color = C.border }) {
+  return <div style={{ height: 1, background: color, width: "100%" }} />;
+}
+
+// ─── Card ────────────────────────────────────────────────────────────────────
+function Card({ children, active, onClick, accentColor = C.accent, className = "" }) {
   return (
-    <div onClick={onClick} className={`cursor-pointer rounded-xl transition-all duration-200 ${className}`}
+    <div
+      onClick={onClick}
+      className={className}
       style={{
-        padding: "14px 16px",
-        border: active ? `1px solid ${color}55` : "1px solid #1e293b",
-        background: active ? color + "08" : "#0f172a",
-        boxShadow: active ? `0 0 20px ${color}15, inset 0 0 20px ${color}05` : "none",
-      }}>
+        padding: "12px 14px",
+        borderRadius: 6,
+        border: `1px solid ${active ? accentColor + "44" : C.border}`,
+        borderLeft: `3px solid ${active ? accentColor : C.border2}`,
+        background: active ? accentColor + "08" : C.bg2,
+        cursor: "pointer",
+        transition: "border-color 0.15s, background 0.15s, border-left-color 0.15s",
+        marginBottom: 8,
+      }}
+      onMouseEnter={e => {
+        if (!active) {
+          e.currentTarget.style.borderColor = C.border2;
+          e.currentTarget.style.borderLeftColor = accentColor + "66";
+          e.currentTarget.style.background = C.bg3;
+        }
+      }}
+      onMouseLeave={e => {
+        if (!active) {
+          e.currentTarget.style.borderColor = C.border;
+          e.currentTarget.style.borderLeftColor = C.border2;
+          e.currentTarget.style.background = C.bg2;
+        }
+      }}
+    >
       {children}
     </div>
   );
 }
 
+// ─── Skeleton ────────────────────────────────────────────────────────────────
 function Skeleton({ count = 3 }) {
   return Array.from({ length: count }).map((_, i) => (
-    <div key={i} className="rounded-xl border border-slate-800 bg-slate-900 p-4 mb-2.5">
-      <div className="h-3.5 w-3/4 bg-slate-800 rounded mb-2.5 animate-pulse" />
-      <div className="h-2.5 w-1/2 bg-slate-800 rounded animate-pulse" />
+    <div key={i} style={{
+      borderRadius: 6,
+      border: `1px solid ${C.border}`,
+      borderLeft: `3px solid ${C.border2}`,
+      background: C.bg2,
+      padding: "12px 14px",
+      marginBottom: 8,
+    }}>
+      <div style={{ height: 12, width: "65%", background: C.bg3, borderRadius: 3, marginBottom: 8,
+        animation: "pulse-accent 1.4s ease-in-out infinite" }} />
+      <div style={{ height: 10, width: "40%", background: C.bg3, borderRadius: 3,
+        animation: "pulse-accent 1.4s ease-in-out infinite 0.2s" }} />
     </div>
   ));
 }
 
-// ─── Preferences Modal ───
+// ─── Btn ─────────────────────────────────────────────────────────────────────
+function Btn({ children, onClick, disabled, color = C.accent, outline = false, small = false, full = false }) {
+  const base = {
+    display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+    padding: small ? "6px 12px" : "10px 18px",
+    borderRadius: 5,
+    fontFamily: "var(--font-display)",
+    fontSize: small ? 12 : 13,
+    fontWeight: 600,
+    letterSpacing: "0.05em",
+    textTransform: "uppercase",
+    border: "none",
+    cursor: disabled ? "default" : "pointer",
+    transition: "opacity 0.15s, background 0.15s",
+    opacity: disabled ? 0.4 : 1,
+    width: full ? "100%" : "auto",
+  };
+
+  if (outline) {
+    return (
+      <button onClick={onClick} disabled={disabled} style={{
+        ...base,
+        background: "transparent",
+        border: `1px solid ${disabled ? C.border2 : color + "55"}`,
+        color: disabled ? C.text3 : color,
+      }}>{children}</button>
+    );
+  }
+
+  return (
+    <button onClick={onClick} disabled={disabled} style={{
+      ...base,
+      background: disabled ? C.bg3 : color,
+      color: disabled ? C.text3 : "#0e0c0b",
+    }}>{children}</button>
+  );
+}
+
+// ─── Input ───────────────────────────────────────────────────────────────────
+function Input({ value, onChange, placeholder, type = "text" }) {
+  return (
+    <input
+      type={type}
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      style={{
+        width: "100%",
+        padding: "9px 12px",
+        borderRadius: 5,
+        border: `1px solid ${C.border2}`,
+        background: C.bg,
+        color: C.text,
+        fontSize: 13,
+        fontFamily: "var(--font-body)",
+        outline: "none",
+      }}
+      onFocus={e => e.target.style.borderColor = C.accent + "66"}
+      onBlur={e => e.target.style.borderColor = C.border2}
+    />
+  );
+}
+
+// ─── Preferences Modal ───────────────────────────────────────────────────────
 function PreferencesModal({ prefs, onSave, onClose, canClose }) {
   const [form, setForm] = useState({ ...prefs, skills: prefs.skills?.join(", ") || "" });
   const update = (key, val) => setForm(p => ({ ...p, [key]: val }));
 
-  const fields = [
-    { key: "role", label: "Target role", ph: "Senior Frontend Engineer" },
-    { key: "location", label: "Preferred location", ph: "San Francisco, Remote" },
-    { key: "skills", label: "Key skills (comma-separated)", ph: "React, TypeScript, Node.js" },
-    { key: "targetCompanies", label: "Target companies (optional)", ph: "Stripe, Vercel, Linear, Anthropic" },
-  ];
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "#000000cc", backdropFilter: "blur(8px)" }}>
-      <div className="w-full max-w-lg rounded-2xl border border-slate-800 p-8 relative" style={{ background: "#0f172a" }}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center grid-bg"
+      style={{ background: "#0e0c0bdd", backdropFilter: "blur(12px)" }}>
+      <div className="slide-in w-full max-w-md" style={{
+        background: C.bg2,
+        border: `1px solid ${C.border2}`,
+        borderTop: `3px solid ${C.accent}`,
+        borderRadius: 8,
+        padding: 32,
+        position: "relative",
+      }}>
         {canClose && (
-          <button onClick={onClose} className="absolute top-4 right-4 text-slate-500 hover:text-slate-300" style={{ background: "none", border: "none", cursor: "pointer" }}>
-            <X size={18} />
+          <button onClick={onClose} style={{
+            position: "absolute", top: 16, right: 16,
+            background: "none", border: "none", color: C.text2,
+            cursor: "pointer", display: "flex",
+          }}>
+            <X size={16} />
           </button>
         )}
-        <div className="flex items-center gap-3 mb-6">
-          <div className="w-9 h-9 rounded-xl flex items-center justify-center" style={{ background: "#22d3ee18" }}>
-            <Target size={18} color="#22d3ee" />
+
+        {/* Header */}
+        <div style={{ marginBottom: 28 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
+            <div style={{
+              width: 8, height: 8, borderRadius: "50%", background: C.accent,
+              animation: "pulse-accent 2s ease-in-out infinite",
+            }} />
+            <span style={{
+              fontFamily: "var(--font-display)",
+              fontSize: 22,
+              fontWeight: 700,
+              color: C.text,
+              letterSpacing: "0.04em",
+              textTransform: "uppercase",
+            }}>Mission Config</span>
           </div>
-          <div>
-            <h2 className="text-lg font-semibold text-slate-100">Mission parameters</h2>
-            <p className="text-xs text-slate-500">Configure your job search agent</p>
-          </div>
+          <p style={{ fontSize: 12, color: C.text2, marginLeft: 18 }}>Define your search parameters</p>
         </div>
-        {fields.map(f => (
-          <div key={f.key} className="mb-4">
-            <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">{f.label}</label>
-            <input value={form[f.key]} onChange={e => update(f.key, e.target.value)} placeholder={f.ph}
-              className="w-full rounded-lg border border-slate-800 bg-slate-950 text-slate-100 text-sm p-2.5 outline-none focus:border-cyan-700" />
+
+        {[
+          { key: "role", label: "Target role", ph: "Senior Frontend Engineer" },
+          { key: "location", label: "Location", ph: "San Francisco, Remote" },
+          { key: "skills", label: "Skills (comma-separated)", ph: "React, TypeScript, Python" },
+          { key: "targetCompanies", label: "Target companies (optional)", ph: "Stripe, Vercel, Anthropic" },
+        ].map(f => (
+          <div key={f.key} style={{ marginBottom: 14 }}>
+            <Label>{f.label}</Label>
+            <div style={{ marginTop: 5 }}>
+              <Input value={form[f.key]} onChange={e => update(f.key, e.target.value)} placeholder={f.ph} />
+            </div>
           </div>
         ))}
-        <div className="mb-5">
-          <label className="block text-xs font-medium text-slate-400 mb-1.5 uppercase tracking-wider">Resume context / bio</label>
-          <textarea value={form.resumeContext} onChange={e => update("resumeContext", e.target.value)}
-            placeholder="Paste a summary of your experience or key resume highlights..." rows={3}
-            className="w-full rounded-lg border border-slate-800 bg-slate-950 text-slate-100 text-sm p-2.5 outline-none focus:border-cyan-700 resize-y" />
+
+        <div style={{ marginBottom: 22 }}>
+          <Label>Resume context / bio</Label>
+          <textarea
+            value={form.resumeContext}
+            onChange={e => update("resumeContext", e.target.value)}
+            placeholder="Paste key resume highlights, experience summary..."
+            rows={3}
+            style={{
+              marginTop: 5, width: "100%",
+              padding: "9px 12px",
+              borderRadius: 5,
+              border: `1px solid ${C.border2}`,
+              background: C.bg,
+              color: C.text,
+              fontSize: 13,
+              fontFamily: "var(--font-body)",
+              outline: "none",
+              resize: "vertical",
+            }}
+            onFocus={e => e.target.style.borderColor = C.accent + "66"}
+            onBlur={e => e.target.style.borderColor = C.border2}
+          />
         </div>
-        <button onClick={() => {
+
+        <Btn full onClick={() => {
           if (!form.role.trim()) return;
           onSave({ ...form, skills: form.skills.split(",").map(s => s.trim()).filter(Boolean) });
-        }}
-          className="w-full rounded-xl py-3 text-sm font-semibold flex items-center justify-center gap-2"
-          style={{
-            background: form.role.trim() ? "linear-gradient(135deg, #0891b2, #22d3ee)" : "#1e293b",
-            color: form.role.trim() ? "#020617" : "#64748b",
-            cursor: form.role.trim() ? "pointer" : "default", border: "none",
-          }}>
-          <Rocket size={16} /> Launch agent
-        </button>
+        }} disabled={!form.role.trim()}>
+          <Rocket size={14} /> Launch agent
+        </Btn>
       </div>
     </div>
   );
 }
 
-// ─── Cards ───
+// ─── Job Card ─────────────────────────────────────────────────────────────────
 function JobCard({ job, active, onClick }) {
   return (
-    <GlowCard active={active} onClick={onClick} color="#22d3ee" className="hover:border-slate-700 mb-2">
-      <div className="flex justify-between items-start mb-1.5">
-        <span className="text-sm font-semibold text-slate-100 leading-snug flex-1 mr-2">{job.title}</span>
+    <Card active={active} onClick={onClick} accentColor={C.accent} className="fade-up">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
+        <span style={{
+          fontSize: 13,
+          fontWeight: 500,
+          color: C.text,
+          lineHeight: 1.35,
+          flex: 1,
+          marginRight: 8,
+        }}>{job.title}</span>
         <ScoreBadge score={job.score} />
       </div>
-      <div className="flex items-center gap-1.5 text-xs text-slate-400 mb-1.5">
-        <Building size={11} /><span>{job.company}</span>
-        {job.location && <><span className="text-slate-700">·</span><MapPin size={11} /><span>{job.location}</span></>}
+      <div style={{ display: "flex", alignItems: "center", gap: 5, color: C.text2, fontSize: 11 }}>
+        <Building size={10} />
+        <span style={{ fontFamily: "var(--font-mono)", fontSize: 11 }}>{job.company}</span>
+        {job.location && (
+          <>
+            <span style={{ color: C.text3 }}>·</span>
+            <MapPin size={10} />
+            <span>{job.location}</span>
+          </>
+        )}
       </div>
-      {job.type && <span className="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-500">{job.type}</span>}
-    </GlowCard>
+      {job.type && (
+        <span style={{
+          display: "inline-block",
+          marginTop: 6,
+          fontSize: 10,
+          padding: "2px 7px",
+          borderRadius: 3,
+          background: C.bg3,
+          color: C.text2,
+          fontFamily: "var(--font-mono)",
+        }}>{job.type}</span>
+      )}
+    </Card>
   );
 }
 
-function SignalCard({ signal, active, onClick }) {
-  return (
-    <GlowCard active={active} onClick={onClick} color="#f59e0b" className="hover:border-slate-700 mb-2">
-      <div className="flex items-center gap-2 mb-2">
-        <div className="w-7 h-7 rounded-full shrink-0 flex items-center justify-center" style={{ background: "#f59e0b18" }}>
-          <User size={14} color="#f59e0b" />
-        </div>
-        <div className="min-w-0">
-          <span className="text-[13px] font-semibold text-slate-100 block truncate">{signal.author}</span>
-          <span className="text-[11px] text-slate-500 block truncate">{signal.company} · {signal.platform || "LinkedIn"}</span>
-        </div>
-      </div>
-      <p className="text-xs text-slate-300 leading-relaxed line-clamp-3 m-0">{signal.content}</p>
-    </GlowCard>
-  );
-}
 
+// ─── History Item ─────────────────────────────────────────────────────────────
 function HistoryItem({ item }) {
   return (
-    <div className="flex items-center gap-2.5 py-2.5 border-b border-slate-800">
+    <div style={{
+      display: "flex", alignItems: "center", gap: 10,
+      padding: "9px 0",
+      borderBottom: `1px solid ${C.border}`,
+    }}>
       <StatusDot status={item.status} />
-      <div className="flex-1 min-w-0">
-        <span className="text-xs font-medium text-slate-200 block truncate">{item.company} — {item.role}</span>
-        <span className="text-[11px] text-slate-500">{item.status} · {item.date}</span>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 12, fontWeight: 500, color: C.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+          {item.company} — {item.role}
+        </div>
+        <div style={{ fontSize: 11, color: C.text2, fontFamily: "var(--font-mono)" }}>
+          {item.status} · {item.date}
+        </div>
       </div>
     </div>
   );
 }
 
-// ═══════════════════════════════════════════
+// ─── Section Header ───────────────────────────────────────────────────────────
+function SectionHeader({ icon, label, color, right }) {
+  return (
+    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+        <span style={{ color }}>{icon}</span>
+        <Label color={color}>{label}</Label>
+      </div>
+      {right}
+    </div>
+  );
+}
+
+// ─── Resume Preview Modal ─────────────────────────────────────────────────────
+function ResumePreviewModal({ tailored, job, prefs, onClose }) {
+  const fullText = [
+    prefs?.resumeContext ? `${prefs.resumeContext}\n` : "",
+    "SUMMARY\n" + (tailored.summary || ""),
+    "\nSKILLS\n" + (tailored.skills || []).join(" · "),
+    ...Object.entries(tailored.experience_bullets || {}).map(
+      ([role, bullets]) => `\n${role}\n` + bullets.map(b => `• ${b}`).join("\n")
+    ),
+  ].join("\n").trim();
+
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 60,
+      background: "#000000cc", backdropFilter: "blur(10px)",
+      display: "flex", alignItems: "flex-start", justifyContent: "center",
+      padding: "32px 16px", overflowY: "auto",
+    }}>
+      <div style={{
+        width: "100%", maxWidth: 720,
+        background: "#fff",
+        borderRadius: 6,
+        overflow: "hidden",
+        boxShadow: "0 24px 80px rgba(0,0,0,0.6)",
+      }}>
+        {/* Modal toolbar */}
+        <div style={{
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          padding: "12px 18px",
+          background: C.bg2,
+          borderBottom: `1px solid ${C.border}`,
+        }}>
+          <Label color={C.violet}>Tailored Resume Preview</Label>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={() => navigator.clipboard?.writeText(fullText)}
+              style={{
+                display: "flex", alignItems: "center", gap: 5,
+                padding: "5px 10px", borderRadius: 4,
+                border: `1px solid ${C.border2}`,
+                background: "transparent", color: C.text2,
+                fontSize: 11, fontFamily: "var(--font-display)",
+                fontWeight: 600, letterSpacing: "0.06em",
+                textTransform: "uppercase", cursor: "pointer",
+              }}>
+              <Copy size={11} /> Copy text
+            </button>
+            <button onClick={onClose} style={{
+              background: "none", border: "none", color: C.text2,
+              cursor: "pointer", display: "flex", padding: 4,
+            }}>
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+
+        {/* Resume document */}
+        <div style={{
+          background: "#fff",
+          color: "#1a1a1a",
+          padding: "48px 56px",
+          fontFamily: "'Barlow', Georgia, serif",
+          fontSize: 13,
+          lineHeight: 1.6,
+          minHeight: 500,
+        }}>
+          {/* Header */}
+          <div style={{ marginBottom: 28, borderBottom: "2px solid #1a1a1a", paddingBottom: 16 }}>
+            <h1 style={{
+              fontSize: 26, fontWeight: 700, margin: 0,
+              fontFamily: "'Barlow Condensed', sans-serif",
+              letterSpacing: "0.04em", textTransform: "uppercase",
+              color: "#1a1a1a",
+            }}>{prefs?.role || "Software Engineer"}</h1>
+            {job && (
+              <p style={{ margin: "4px 0 0", fontSize: 12, color: "#555" }}>
+                Tailored for: <strong>{job.title}</strong> @ {job.company}
+                {job.location ? ` · ${job.location}` : ""}
+              </p>
+            )}
+          </div>
+
+          {/* Summary */}
+          {tailored.summary && (
+            <div style={{ marginBottom: 24 }}>
+              <h2 style={{
+                fontSize: 11, fontWeight: 700, margin: "0 0 8px",
+                letterSpacing: "0.12em", textTransform: "uppercase",
+                color: "#ff5500", fontFamily: "'Barlow Condensed', sans-serif",
+              }}>Summary</h2>
+              <p style={{ margin: 0, fontSize: 13, color: "#222", lineHeight: 1.65 }}>
+                {tailored.summary}
+              </p>
+            </div>
+          )}
+
+          {/* Skills */}
+          {tailored.skills?.length > 0 && (
+            <div style={{ marginBottom: 24 }}>
+              <h2 style={{
+                fontSize: 11, fontWeight: 700, margin: "0 0 8px",
+                letterSpacing: "0.12em", textTransform: "uppercase",
+                color: "#ff5500", fontFamily: "'Barlow Condensed', sans-serif",
+              }}>Skills</h2>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 12px" }}>
+                {tailored.skills.map((s, i) => (
+                  <span key={i} style={{ fontSize: 12, color: "#333" }}>
+                    {i > 0 && <span style={{ color: "#bbb", marginRight: 12 }}>·</span>}{s}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Experience */}
+          {Object.entries(tailored.experience_bullets || {}).length > 0 && (
+            <div style={{ marginBottom: 24 }}>
+              <h2 style={{
+                fontSize: 11, fontWeight: 700, margin: "0 0 14px",
+                letterSpacing: "0.12em", textTransform: "uppercase",
+                color: "#ff5500", fontFamily: "'Barlow Condensed', sans-serif",
+              }}>Experience</h2>
+              {Object.entries(tailored.experience_bullets).map(([role, bullets]) => (
+                <div key={role} style={{ marginBottom: 18 }}>
+                  <div style={{
+                    fontSize: 13, fontWeight: 600, color: "#111",
+                    fontFamily: "'Barlow Condensed', sans-serif",
+                    letterSpacing: "0.02em", marginBottom: 6,
+                    borderLeft: "3px solid #ff5500",
+                    paddingLeft: 10,
+                  }}>{role}</div>
+                  <ul style={{ margin: 0, paddingLeft: 22 }}>
+                    {bullets.map((b, i) => (
+                      <li key={i} style={{ fontSize: 12.5, color: "#333", lineHeight: 1.65, marginBottom: 3 }}>
+                        {b}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Keywords badge row */}
+          {tailored.keywords_added?.length > 0 && (
+            <div style={{
+              marginTop: 24, paddingTop: 16,
+              borderTop: "1px solid #eee",
+            }}>
+              <p style={{ fontSize: 10, color: "#999", margin: "0 0 6px", textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                ATS keywords injected
+              </p>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 5 }}>
+                {tailored.keywords_added.map((k, i) => (
+                  <span key={i} style={{
+                    fontSize: 10, padding: "2px 7px", borderRadius: 3,
+                    background: "#f0fff4", color: "#166534",
+                    border: "1px solid #bbf7d0",
+                  }}>{k}</span>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 //  MAIN APP
-// ═══════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════════════════════
 export default function App() {
-  const [prefs, setPrefs] = useState(() => loadState(STORAGE_KEY + ":prefs", null));
-  const [showPrefs, setShowPrefs] = useState(false);
-  const [jobs, setJobs] = useState([]);
-  const [signals, setSignals] = useState([]);
-  const [selected, setSelected] = useState(null);
-  const [draft, setDraft] = useState(null);
-  const [history, setHistory] = useState([]);
-  const [loadingJobs, setLoadingJobs] = useState(false);
-  const [loadingSignals, setLoadingSignals] = useState(false);
-  const [loadingDraft, setLoadingDraft] = useState(false);
-  const [sendingEmail, setSendingEmail] = useState(false);
-  const [error, setError] = useState(null);
-  const [activePanel, setActivePanel] = useState("jobs");
-  const [lastRefresh, setLastRefresh] = useState(null);
-  const [emailTo, setEmailTo] = useState("");
-  const [tprSeconds, setTprSeconds] = useState(3600);
+  const [prefs, setPrefs]                   = useState(null);
+  const [showPrefs, setShowPrefs]           = useState(false);
+  const [jobs, setJobs]                     = useState([]);
+  const [hiringPosts, setHiringPosts]       = useState([]);
+  const [loadingPosts, setLoadingPosts]     = useState(false);
+  const [postsTimeFilter, setPostsTimeFilter] = useState("all");
+  const [startupJobs, setStartupJobs]       = useState([]);
+  const [loadingStartup, setLoadingStartup] = useState(false);
+  const [startupRoles, setStartupRoles]     = useState([
+    "Forward Deployed Engineer", "Forward Deployed AI Engineer",
+    "AI Engineer", "AI Automation Engineer",
+    "AI Deployment Strategist", "AI Operations", "Solutions Engineer",
+  ]);
+  const [startupPlatforms, setStartupPlatforms] = useState(["ashby", "greenhouse"]);
+  const [emailCache, setEmailCache]             = useState({});   // "author|company" -> {email,score,loading}
+
+  const [selected, setSelected]             = useState(null);
+  const [draft, setDraft]                   = useState(null);
+  const [history, setHistory]               = useState([]);
+  const [loadingJobs, setLoadingJobs]       = useState(false);
+  const [loadingDraft, setLoadingDraft]     = useState(false);
+  const [sendingEmail, setSendingEmail]     = useState(false);
+  const [error, setError]                   = useState(null);
+  const [activePanel, setActivePanel]       = useState("jobs");
+  const [lastRefresh, setLastRefresh]       = useState(null);
+  const [emailTo, setEmailTo]               = useState("");
+  const [tprSeconds, setTprSeconds]         = useState(3600);
+  const [autofillFields, setAutofillFields] = useState(null);
+  const [loadingAutofill, setLoadingAutofill] = useState(false);
+  const [resumeFile, setResumeFile]         = useState(null);
+  const [tailoredResume, setTailoredResume] = useState(null);
+  const [loadingTailor, setLoadingTailor]   = useState(false);
+  const [applySession, setApplySession]     = useState(null);
+  const [applyStatus, setApplyStatus]       = useState(null);
+  const [showResumePreview, setShowResumePreview] = useState(false);
+  const applyPollRef = useRef(null);
   const draftRef = useRef(null);
 
   useEffect(() => {
-    if (!prefs?.role) { setShowPrefs(true); return; }
-    fetchHistory();
-    fetchCachedJobs();
+    api("/api/prefs").then(p => {
+      if (p?.role) {
+        setPrefs(p);
+        fetchHistory();
+        // restore all three data sets from DB in parallel
+        Promise.all([
+          api(`/api/jobs/cached?role=${encodeURIComponent(p.role)}`).catch(() => null),
+          api(`/api/jobs/hiring-posts/cached?role=${encodeURIComponent(p.role)}`).catch(() => null),
+          api("/api/jobs/startup-roles/cached").catch(() => null),
+        ]).then(([jobs, posts, startups]) => {
+          if (jobs?.jobs?.length)    { setJobs(jobs.jobs); setLastRefresh(jobs.jobs[0]?.scraped_at || null); }
+          if (posts?.posts?.length)   setHiringPosts(posts.posts);
+          if (startups?.jobs?.length) setStartupJobs(startups.jobs);
+        });
+      } else {
+        setShowPrefs(true);
+      }
+    }).catch(() => setShowPrefs(true));
   }, []);
 
   const fetchHistory = async () => {
     try { setHistory(await api("/api/history/")); } catch {}
   };
 
-  const fetchCachedJobs = async () => {
-    if (!prefs?.role) return;
-    try {
-      const data = await api(`/api/jobs/cached?role=${encodeURIComponent(prefs.role)}`);
-      if (data.jobs?.length) {
-        setJobs(data.jobs);
-        setLastRefresh(data.jobs[0]?.scraped_at || null);
-      }
-    } catch {}
-  };
 
   const searchJobs = useCallback(async () => {
     if (!prefs?.role) return;
     setLoadingJobs(true); setError(null);
     try {
       const data = await api("/api/jobs/search", {
-        role: prefs.role,
-        location: prefs.location,
-        skills: prefs.skills,
-        target_companies: prefs.targetCompanies,
-        limit: 10,
-        tpr_seconds: tprSeconds,
+        role: prefs.role, location: prefs.location,
+        skills: prefs.skills, target_companies: prefs.targetCompanies,
+        limit: 10, tpr_seconds: tprSeconds,
       });
       setJobs(data.jobs || []);
       setLastRefresh(new Date().toISOString());
@@ -238,19 +653,6 @@ export default function App() {
     setLoadingJobs(false);
   }, [prefs, tprSeconds]);
 
-  // Signals still use backend Claude proxy (web search via Claude)
-  const searchSignals = useCallback(async () => {
-    if (!prefs?.role) return;
-    setLoadingSignals(true); setError(null);
-    try {
-      const data = await api("/api/outreach/signals", {
-        role: prefs.role,
-        target_companies: prefs.targetCompanies,
-      });
-      setSignals(data.signals || []);
-    } catch (e) { setError("Signal search failed: " + e.message); }
-    setLoadingSignals(false);
-  }, [prefs]);
 
   const generateOutreach = useCallback(async (item) => {
     setLoadingDraft(true); setDraft(null);
@@ -264,6 +666,66 @@ export default function App() {
     setLoadingDraft(false);
   }, [prefs]);
 
+  const generateAutofill = useCallback(async (job) => {
+    setLoadingAutofill(true); setAutofillFields(null);
+    try {
+      const data = await api("/api/autofill/generate", { job, prefs });
+      setAutofillFields(data.fields || {});
+    } catch (e) { setError("Autofill failed: " + e.message); }
+    setLoadingAutofill(false);
+  }, [prefs]);
+
+  const tailorResume = useCallback(async (job) => {
+    if (!resumeFile || !job) return;
+    setLoadingTailor(true); setTailoredResume(null);
+    try {
+      const form = new FormData();
+      form.append("file", resumeFile);
+      form.append("job", JSON.stringify(job));
+      form.append("prefs", JSON.stringify(prefs));
+      const res = await fetch(`${API_BASE}/api/resume/tailor`, { method: "POST", body: form });
+      if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e?.detail || `API error: ${res.status}`); }
+      const data = await res.json();
+      setTailoredResume(data.tailored);
+    } catch (e) { setError("Resume tailor failed: " + e.message); }
+    setLoadingTailor(false);
+  }, [resumeFile, prefs]);
+
+  const startApply = useCallback(async (job) => {
+    if (!job?.url) return;
+    setError(null);
+    try {
+      const data = await api("/api/apply/start", { job_url: job.url, job, prefs });
+      setApplySession(data.session_id);
+      setApplyStatus({ status: "starting", message: "Starting browser…", screenshot: null });
+      // poll status
+      applyPollRef.current = setInterval(async () => {
+        try {
+          const s = await api(`/api/apply/status/${data.session_id}`, null);
+          setApplyStatus(s);
+          if (["submitted", "failed", "aborted"].includes(s.status)) {
+            clearInterval(applyPollRef.current);
+          }
+        } catch {}
+      }, 2000);
+    } catch (e) { setError("Auto-apply failed: " + e.message); }
+  }, [prefs]);
+
+  const confirmApply = useCallback(async () => {
+    if (!applySession) return;
+    try { await api("/api/apply/confirm", { session_id: applySession }); }
+    catch (e) { setError("Confirm failed: " + e.message); }
+  }, [applySession]);
+
+  const abortApply = useCallback(async () => {
+    if (!applySession) return;
+    clearInterval(applyPollRef.current);
+    try { await api("/api/apply/abort", { session_id: applySession }); }
+    catch {}
+    setApplySession(null);
+    setApplyStatus(null);
+  }, [applySession]);
+
   const sendEmail = useCallback(async () => {
     if (!draft || !emailTo) return;
     setSendingEmail(true);
@@ -272,10 +734,8 @@ export default function App() {
       await api("/api/history/", {
         company: selected.company,
         role: selected.title || selected.role || prefs.role,
-        status: "sent",
-        recipient: emailTo,
-        subject: draft.subject,
-        body: draft.body,
+        status: "sent", recipient: emailTo,
+        subject: draft.subject, body: draft.body,
       });
       await fetchHistory();
       setDraft(null); setEmailTo(""); setSelected(null);
@@ -283,274 +743,1191 @@ export default function App() {
     setSendingEmail(false);
   }, [draft, emailTo, selected, prefs]);
 
+  const searchHiringPosts = useCallback(async () => {
+    if (!prefs?.role) return;
+    setLoadingPosts(true); setError(null);
+    try {
+      const data = await api("/api/jobs/hiring-posts", { role: prefs.role, location: prefs.location, max_results: 20 });
+      setHiringPosts(data.posts || []);
+    } catch (e) { setError("Hiring posts failed: " + e.message); }
+    setLoadingPosts(false);
+  }, [prefs]);
+
+  const findEmail = useCallback(async (author, company) => {
+    const key = `${author}|${company}`;
+    if (emailCache[key]?.email || emailCache[key]?.loading) return;
+    setEmailCache(prev => ({ ...prev, [key]: { loading: true } }));
+    try {
+      const params = new URLSearchParams({ name: author, company });
+      const data = await fetch(`${API_BASE}/api/outreach/find-email?${params}`).then(r => r.json());
+      setEmailCache(prev => ({ ...prev, [key]: { email: data.email, score: data.score, loading: false } }));
+    } catch {
+      setEmailCache(prev => ({ ...prev, [key]: { email: null, loading: false } }));
+    }
+  }, [emailCache]);
+
+  const searchStartupRoles = useCallback(async (roles = startupRoles, platforms = startupPlatforms) => {
+    setLoadingStartup(true); setError(null);
+    try {
+      const data = await api("/api/jobs/startup-roles", { roles, platforms, max_results: 50 });
+      setStartupJobs(data.jobs || []);
+    } catch (e) { setError("Startup search failed: " + e.message); }
+    setLoadingStartup(false);
+  }, [startupRoles, startupPlatforms]);
+
   const runAll = useCallback(() => {
     searchJobs();
-    searchSignals();
-  }, [searchJobs, searchSignals]);
+  }, [searchJobs]);
 
   const handleSavePrefs = (newPrefs) => {
     setPrefs(newPrefs);
-    saveState(STORAGE_KEY + ":prefs", newPrefs);
+    api("/api/prefs", newPrefs).catch(() => {});
     setShowPrefs(false);
     setTimeout(runAll, 300);
   };
 
+  const selectItem = (item) => {
+    setSelected(item);
+    setDraft(null);
+    setAutofillFields(null);
+    setActivePanel("action");
+  };
+
   const totalSent = history.filter(h => h.status === "sent").length;
-  const isLoading = loadingJobs || loadingSignals;
+  const isLoading = loadingJobs || loadingPosts;
+
+  const tabs = [
+    { key: "jobs",     label: "Radar",    icon: <Briefcase size={12} />,     color: C.accent,  count: jobs.length },
+    { key: "posts",    label: "Hiring",   icon: <MessageSquare size={12} />, color: C.gold,    count: hiringPosts.length },
+    { key: "startups", label: "Startups", icon: <Rocket size={12} />,        color: C.green,   count: startupJobs.length || null },
+    { key: "action",   label: "Outreach", icon: <Send size={12} />,          color: "#f472b6", count: null },
+    { key: "resume",   label: "Resume",   icon: <FileText size={12} />,      color: C.violet,  count: null },
+  ];
 
   return (
-    <div className="min-h-screen" style={{ background: "#020617" }}>
+    <div className="noise" style={{ minHeight: "100vh", background: C.bg }}>
       {(showPrefs || !prefs?.role) && (
-        <PreferencesModal prefs={prefs || defaultPrefs} onSave={handleSavePrefs}
-          onClose={() => prefs?.role && setShowPrefs(false)} canClose={!!prefs?.role} />
+        <PreferencesModal
+          prefs={prefs || defaultPrefs}
+          onSave={handleSavePrefs}
+          onClose={() => prefs?.role && setShowPrefs(false)}
+          canClose={!!prefs?.role}
+        />
       )}
 
-      {/* ─── HEADER ─── */}
-      <header className="sticky top-0 z-40 border-b border-slate-900 flex items-center gap-3 px-4 py-3 sm:px-6"
-        style={{ background: "#020617ee", backdropFilter: "blur(12px)" }}>
-        <div className="flex items-center gap-2.5 mr-auto">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-            style={{ background: "linear-gradient(135deg, #0891b2, #22d3ee)" }}>
-            <Rocket size={15} color="#020617" />
+      {showResumePreview && tailoredResume && (
+        <ResumePreviewModal
+          tailored={tailoredResume}
+          job={selected}
+          prefs={prefs}
+          onClose={() => setShowResumePreview(false)}
+        />
+      )}
+
+      {/* ── HEADER ─────────────────────────────────────────────────────────── */}
+      <header style={{
+        position: "sticky", top: 0, zIndex: 40,
+        background: C.bg + "ee",
+        backdropFilter: "blur(14px)",
+        borderBottom: `1px solid ${C.border}`,
+        display: "flex", alignItems: "center", gap: 12,
+        padding: "10px 20px",
+      }}>
+        {/* Logo */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, marginRight: "auto" }}>
+          <div style={{
+            width: 28, height: 28, borderRadius: 5,
+            background: C.accent,
+            display: "flex", alignItems: "center", justifyContent: "center",
+          }}>
+            <Rocket size={14} color="#0e0c0b" />
           </div>
-          <span className="text-base font-bold text-slate-100 tracking-tight hidden sm:inline">JobPilot</span>
-          <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider hidden sm:inline"
-            style={{ background: "#22d3ee18", color: "#22d3ee" }}>AI Agent</span>
+          <div>
+            <span style={{
+              fontFamily: "var(--font-display)",
+              fontSize: 18,
+              fontWeight: 700,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              color: C.text,
+            }}>JobPilot</span>
+            <span style={{
+              marginLeft: 8,
+              fontFamily: "var(--font-mono)",
+              fontSize: 9,
+              padding: "2px 6px",
+              borderRadius: 3,
+              background: C.aDim,
+              color: C.accent,
+              border: `1px solid ${C.aBorder}`,
+              letterSpacing: "0.08em",
+            }}>AI AGENT</span>
+          </div>
         </div>
+
+        {/* Role pill */}
         {prefs?.role && (
-          <span className="text-xs text-slate-500 max-w-[180px] truncate hidden md:inline">
-            {prefs.role}{prefs.location ? ` · ${prefs.location}` : ""}
+          <span style={{
+            display: "none",
+            fontFamily: "var(--font-mono)",
+            fontSize: 11,
+            color: C.text2,
+            maxWidth: 180,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+            className="md:inline-block">
+            {prefs.role}{prefs.location ? ` / ${prefs.location}` : ""}
           </span>
         )}
-        <button onClick={() => setShowPrefs(true)}
-          className="rounded-lg border border-slate-800 px-2.5 py-1.5 text-xs text-slate-400 flex items-center gap-1.5 hover:border-slate-600 transition-colors"
-          style={{ background: "none", cursor: "pointer" }}>
-          <Settings size={13} /> <span className="hidden sm:inline">Config</span>
+
+        {/* Config */}
+        <button onClick={() => setShowPrefs(true)} style={{
+          display: "flex", alignItems: "center", gap: 5,
+          padding: "6px 10px",
+          borderRadius: 5,
+          border: `1px solid ${C.border2}`,
+          background: "transparent",
+          color: C.text2,
+          fontSize: 11,
+          fontFamily: "var(--font-display)",
+          fontWeight: 600,
+          letterSpacing: "0.06em",
+          textTransform: "uppercase",
+          cursor: "pointer",
+          transition: "border-color 0.15s, color 0.15s",
+        }}
+          onMouseEnter={e => { e.currentTarget.style.borderColor = C.accent + "55"; e.currentTarget.style.color = C.text; }}
+          onMouseLeave={e => { e.currentTarget.style.borderColor = C.border2; e.currentTarget.style.color = C.text2; }}>
+          <Settings size={12} />
+          <span className="hidden sm:inline">Config</span>
         </button>
-        <button onClick={runAll} disabled={isLoading}
-          className="rounded-lg px-3.5 py-2 text-[13px] font-semibold flex items-center gap-1.5 transition-all"
-          style={{
-            background: isLoading ? "#1e293b" : "linear-gradient(135deg, #0891b2, #22d3ee)",
-            color: isLoading ? "#64748b" : "#020617", border: "none", cursor: "pointer",
-          }}>
-          {isLoading ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-          {isLoading ? "Scanning..." : "Scan"}
+
+        {/* Scan */}
+        <button onClick={runAll} disabled={isLoading} style={{
+          display: "flex", alignItems: "center", gap: 6,
+          padding: "7px 14px",
+          borderRadius: 5,
+          border: "none",
+          background: isLoading ? C.bg3 : C.accent,
+          color: isLoading ? C.text3 : "#0e0c0b",
+          fontSize: 12,
+          fontFamily: "var(--font-display)",
+          fontWeight: 700,
+          letterSpacing: "0.08em",
+          textTransform: "uppercase",
+          cursor: isLoading ? "default" : "pointer",
+          transition: "background 0.15s",
+        }}>
+          {isLoading
+            ? <><Loader2 size={13} className="animate-spin" /> Scanning</>
+            : <><RefreshCw size={13} /> Scan</>}
         </button>
       </header>
 
-      {/* ─── STATS BAR ─── */}
-      <div className="px-4 sm:px-6 py-2.5 border-b border-slate-900 flex gap-5 text-xs text-slate-500" style={{ background: "#020617" }}>
+      {/* ── STATS BAR ──────────────────────────────────────────────────────── */}
+      <div style={{
+        display: "flex",
+        gap: 20,
+        padding: "7px 20px",
+        borderBottom: `1px solid ${C.border}`,
+        background: C.bg,
+        overflowX: "auto",
+      }}>
         {[
-          { icon: <Briefcase size={12} />, label: `${jobs.length} jobs`, color: "#22d3ee" },
-          { icon: <Radio size={12} />, label: `${signals.length} signals`, color: "#f59e0b" },
-          { icon: <Send size={12} />, label: `${totalSent} sent`, color: "#10b981" },
-          lastRefresh && { icon: <Clock size={12} />, label: new Date(lastRefresh).toLocaleTimeString() },
+          { icon: <Briefcase size={11} />, val: jobs.length,   label: "jobs",    color: C.accent },
+          { icon: <Send size={11} />,      val: totalSent,      label: "sent",    color: C.green },
+          lastRefresh && { icon: <Clock size={11} />, val: new Date(lastRefresh).toLocaleTimeString(), label: "", color: C.text2 },
         ].filter(Boolean).map((s, i) => (
-          <span key={i} className="flex items-center gap-1.5">
-            <span style={{ color: s.color || "#64748b" }}>{s.icon}</span>{s.label}
+          <span key={i} style={{
+            display: "flex", alignItems: "center", gap: 5,
+            fontSize: 11,
+            fontFamily: "var(--font-mono)",
+            color: C.text2,
+            whiteSpace: "nowrap",
+          }}>
+            <span style={{ color: s.color }}>{s.icon}</span>
+            <span style={{ color: C.text, fontWeight: 600 }}>{s.val}</span>
+            {s.label && <span>{s.label}</span>}
           </span>
         ))}
       </div>
 
-      {/* ─── ERROR ─── */}
+      {/* ── ERROR ──────────────────────────────────────────────────────────── */}
       {error && (
-        <div className="mx-4 sm:mx-6 mt-3 p-3 rounded-lg flex items-center gap-2.5 text-[13px]"
-          style={{ background: "#ef444418", border: "1px solid #ef444433", color: "#fca5a5" }}>
-          <AlertCircle size={16} />
-          <span className="flex-1">{error}</span>
-          <button onClick={() => setError(null)} style={{ background: "none", border: "none", color: "#fca5a5", cursor: "pointer" }}><X size={14} /></button>
+        <div style={{
+          margin: "12px 20px",
+          padding: "10px 14px",
+          borderRadius: 6,
+          background: C.red + "18",
+          border: `1px solid ${C.red}33`,
+          color: "#fca5a5",
+          fontSize: 12,
+          display: "flex", alignItems: "center", gap: 8,
+        }}>
+          <AlertCircle size={14} style={{ flexShrink: 0 }} />
+          <span style={{ flex: 1 }}>{error}</span>
+          <button onClick={() => setError(null)} style={{ background: "none", border: "none", color: "#fca5a5", cursor: "pointer" }}>
+            <X size={13} />
+          </button>
         </div>
       )}
 
-      {/* ─── TABS ─── */}
-      <div className="flex border-b border-slate-900 px-4 sm:px-6" style={{ background: "#020617" }}>
-        {[
-          { key: "jobs", label: "Job radar", icon: <Briefcase size={13} />, color: "#22d3ee" },
-          { key: "signals", label: "Signals", icon: <Zap size={13} />, color: "#f59e0b" },
-          { key: "action", label: "Outreach", icon: <Send size={13} />, color: "#f472b6" },
-        ].map(t => (
-          <button key={t.key} onClick={() => setActivePanel(t.key)}
-            className="py-2.5 px-3 sm:px-4 text-xs font-semibold flex items-center gap-1.5 uppercase tracking-wide transition-all"
-            style={{
-              background: "none", border: "none", cursor: "pointer",
-              borderBottom: activePanel === t.key ? `2px solid ${t.color}` : "2px solid transparent",
-              color: activePanel === t.key ? t.color : "#64748b",
-            }}>
-            {t.icon}<span className="hidden sm:inline">{t.label}</span>
+      {/* ── TABS ───────────────────────────────────────────────────────────── */}
+      <div style={{
+        display: "flex",
+        borderBottom: `1px solid ${C.border}`,
+        background: C.bg,
+        padding: "0 20px",
+      }}>
+        {tabs.map(t => (
+          <button key={t.key} onClick={() => setActivePanel(t.key)} style={{
+            display: "flex", alignItems: "center", gap: 5,
+            padding: "10px 14px",
+            background: "none",
+            border: "none",
+            borderBottom: activePanel === t.key ? `2px solid ${t.color}` : "2px solid transparent",
+            marginBottom: -1,
+            color: activePanel === t.key ? t.color : C.text2,
+            fontFamily: "var(--font-display)",
+            fontSize: 12,
+            fontWeight: 700,
+            letterSpacing: "0.08em",
+            textTransform: "uppercase",
+            cursor: "pointer",
+            transition: "color 0.15s, border-color 0.15s",
+            whiteSpace: "nowrap",
+          }}>
+            {t.icon}
+            <span className="hidden sm:inline">{t.label}</span>
+            {t.count !== null && t.count > 0 && (
+              <span style={{
+                fontFamily: "var(--font-mono)",
+                fontSize: 10,
+                padding: "1px 5px",
+                borderRadius: 3,
+                background: t.color + "22",
+                color: t.color,
+              }}>{t.count}</span>
+            )}
           </button>
         ))}
       </div>
 
-      {/* ─── MAIN GRID ─── */}
-      <div className="grid grid-cols-1 lg:grid-cols-3" style={{ minHeight: "calc(100vh - 170px)" }}>
+      {/* ── HIRING POSTS (full-width panel, outside grid) ─────────────────── */}
+      {activePanel === "posts" && (
+        <div style={{ padding: 20, overflowY: "auto", maxHeight: "calc(100vh - 148px)" }}>
+          <SectionHeader
+            icon={<MessageSquare size={13} />}
+            label="Hiring Posts"
+            color={C.gold}
+            right={
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <select
+                  value={postsTimeFilter}
+                  onChange={e => setPostsTimeFilter(e.target.value)}
+                  style={{
+                    fontSize: 11, padding: "2px 6px", borderRadius: 4,
+                    background: C.gDim, border: `1px solid ${C.gBorder}`,
+                    color: C.text2, cursor: "pointer",
+                  }}
+                >
+                  <option value="all">All time</option>
+                  <option value="24h">Last 24h</option>
+                  <option value="3d">Last 3 days</option>
+                  <option value="week">Last week</option>
+                  <option value="month">Last month</option>
+                </select>
+                <button onClick={searchHiringPosts} disabled={loadingPosts} style={{
+                  background: "none", border: "none", color: C.text2, cursor: "pointer", padding: 3, display: "flex",
+                }}>
+                  {loadingPosts ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
+                </button>
+              </div>
+            }
+          />
+          {(() => {
+            const cutoffMs = { "24h": 864e5, "3d": 259.2e6, "week": 6048e5, "month": 2592e6 };
+            const now = Date.now();
+            const filtered = postsTimeFilter === "all"
+              ? hiringPosts
+              : hiringPosts.filter(p => {
+                  if (!p.posted_ts) return true; // no ts → always show
+                  const ts = p.posted_ts > 1e10 ? p.posted_ts : p.posted_ts * 1000; // handle s vs ms
+                  return now - ts <= cutoffMs[postsTimeFilter];
+                });
+            return (
+              <div className="grid grid-cols-1 lg:grid-cols-3" style={{ gap: 12 }}>
+                {loadingPosts && !hiringPosts.length
+                  ? <Skeleton count={6} />
+                  : filtered.length
+                    ? filtered.map((p, i) => (
+                        <Card key={i} className="fade-up" accentColor={C.gold}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 8 }}>
+                            <div style={{
+                              width: 30, height: 30, borderRadius: "50%", flexShrink: 0,
+                              background: C.gDim, border: `1px solid ${C.gBorder}`,
+                              display: "flex", alignItems: "center", justifyContent: "center", overflow: "hidden",
+                            }}>
+                              {p.avatar
+                                ? <img src={p.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                                : <User size={13} color={C.gold} />}
+                            </div>
+                            <div style={{ minWidth: 0, flex: 1 }}>
+                              <div style={{ fontSize: 12, fontWeight: 600, color: C.text, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                {p.author}
+                              </div>
+                              {p.job_title && (
+                                <div style={{ fontSize: 10, color: C.gold, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 600 }}>
+                                  {p.job_title}
+                                </div>
+                              )}
+                              <div style={{ fontSize: 11, color: C.text2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "var(--font-mono)" }}>
+                                {p.company_name || p.company}
+                              </div>
+                            </div>
+                            {p.url && (
+                              <a href={p.url} target="_blank" rel="noopener noreferrer" style={{ color: C.gold, flexShrink: 0 }}>
+                                <ExternalLink size={12} />
+                              </a>
+                            )}
+                          </div>
+                          <p style={{ fontSize: 12, color: C.text, lineHeight: 1.6, margin: 0,
+                            display: "-webkit-box", WebkitLineClamp: 5, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                            {p.text}
+                          </p>
+                          {/* ── Email finder row ── */}
+                          {(() => {
+                            const ekey = `${p.author}|${p.company_name || p.company}`;
+                            const es   = emailCache[ekey] || {};
+                            return (
+                              <div style={{ marginTop: 8, display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                                {es.email ? (
+                                  <a href={`mailto:${es.email}`} style={{
+                                    fontSize: 11, color: C.green, display: "flex", alignItems: "center", gap: 4,
+                                    textDecoration: "none", fontFamily: "var(--font-mono)",
+                                  }}>
+                                    <Mail size={10} /> {es.email}
+                                    {es.score > 0 && <span style={{ color: C.text3, fontSize: 9 }}>({es.score}%)</span>}
+                                  </a>
+                                ) : es.loading ? (
+                                  <span style={{ fontSize: 11, color: C.text3, display: "flex", alignItems: "center", gap: 4 }}>
+                                    <Loader2 size={10} className="animate-spin" /> Finding…
+                                  </span>
+                                ) : es.email === null ? (
+                                  <span style={{ fontSize: 10, color: C.text3 }}>No email found</span>
+                                ) : (
+                                  <button
+                                    onClick={() => findEmail(p.author, p.company_name || p.company)}
+                                    style={{
+                                      fontSize: 10, padding: "2px 8px", borderRadius: 4, cursor: "pointer",
+                                      background: C.gnDim, border: `1px solid ${C.green}`,
+                                      color: C.green, display: "flex", alignItems: "center", gap: 4,
+                                    }}
+                                  >
+                                    <Mail size={9} /> Find Email
+                                  </button>
+                                )}
+                                {p.posted && (
+                                  <span style={{ fontSize: 10, color: C.text3, marginLeft: "auto", fontFamily: "var(--font-mono)" }}>
+                                    {p.posted}
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })()}
+                        </Card>
+                      ))
+                    : (
+                      <div style={{ textAlign: "center", padding: "48px 0", color: C.text3, gridColumn: "1/-1" }}>
+                        <MessageSquare size={28} style={{ margin: "0 auto 12px", opacity: 0.4 }} />
+                        <p style={{ fontSize: 12, marginBottom: 12 }}>
+                          {hiringPosts.length ? "No posts in this time range." : "No hiring posts yet."}
+                        </p>
+                        {!hiringPosts.length && (
+                          <button onClick={searchHiringPosts} style={{
+                            padding: "6px 14px", borderRadius: 5, fontSize: 12, cursor: "pointer",
+                            background: C.gDim, border: `1px solid ${C.gBorder}`, color: C.gold,
+                          }}>Scan LinkedIn Posts</button>
+                        )}
+                      </div>
+                    )
+                }
+              </div>
+            );
+          })()}
+        </div>
+      )}
 
-        {/* COL 1: JOBS */}
-        <div className={`border-r border-slate-900 p-4 overflow-y-auto ${activePanel !== "jobs" ? "hidden lg:block" : ""}`}
-          style={{ maxHeight: "calc(100vh - 170px)" }}>
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Briefcase size={14} color="#22d3ee" />
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Job radar</span>
+      {/* ── STARTUPS PANEL ─────────────────────────────────────────────────── */}
+      {activePanel === "startups" && (
+        <div style={{ padding: 20, overflowY: "auto", maxHeight: "calc(100vh - 148px)" }}>
+          {/* Role chips */}
+          <div style={{ marginBottom: 14 }}>
+            <div style={{ fontSize: 10, color: C.text3, marginBottom: 6, fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: 1 }}>
+              Target Roles
             </div>
-            <div className="flex items-center gap-2">
-              <select value={tprSeconds} onChange={e => setTprSeconds(Number(e.target.value))}
-                className="text-[11px] rounded-md border border-slate-800 bg-slate-950 text-slate-400 px-1.5 py-1 outline-none">
-                <option value={3600}>Past 1h</option>
-                <option value={7200}>Past 2h</option>
-                <option value={14400}>Past 4h</option>
-                <option value={86400}>Past 24h</option>
-              </select>
-              <button onClick={searchJobs} disabled={loadingJobs}
-                style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", padding: 4 }}>
-                {loadingJobs ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
+              {["Forward Deployed Engineer","Forward Deployed AI Engineer","AI Engineer",
+                "AI Automation Engineer","AI Deployment Strategist","AI Operations","Solutions Engineer"].map(role => {
+                const active = startupRoles.includes(role);
+                return (
+                  <button key={role} onClick={() => setStartupRoles(prev =>
+                    active ? prev.filter(r => r !== role) : [...prev, role]
+                  )} style={{
+                    padding: "3px 10px", borderRadius: 20, fontSize: 11, cursor: "pointer",
+                    background: active ? C.gnDim : C.bg2,
+                    border: `1px solid ${active ? C.green : C.border}`,
+                    color: active ? C.green : C.text2,
+                    transition: "all 0.15s",
+                  }}>
+                    {role}
+                  </button>
+                );
+              })}
+            </div>
+            {/* Platform toggles + search */}
+            <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+              <div style={{ fontSize: 10, color: C.text3, fontFamily: "var(--font-mono)", textTransform: "uppercase", letterSpacing: 1 }}>
+                Boards:
+              </div>
+              {[["ashby","Ashby","#7c3aed"],["greenhouse","Greenhouse","#059669"],["lever","Lever","#0ea5e9"],["dover","Dover","#f59e0b"]].map(([key, label, col]) => {
+                const active = startupPlatforms.includes(key);
+                return (
+                  <button key={key} onClick={() => setStartupPlatforms(prev =>
+                    active ? prev.filter(p => p !== key) : [...prev, key]
+                  )} style={{
+                    padding: "3px 10px", borderRadius: 20, fontSize: 11, cursor: "pointer",
+                    background: active ? col + "22" : C.bg2,
+                    border: `1px solid ${active ? col : C.border}`,
+                    color: active ? col : C.text2,
+                    transition: "all 0.15s",
+                  }}>
+                    {label}
+                  </button>
+                );
+              })}
+              <button
+                onClick={() => searchStartupRoles(startupRoles, startupPlatforms)}
+                disabled={loadingStartup || startupRoles.length === 0 || startupPlatforms.length === 0}
+                style={{
+                  padding: "4px 16px", borderRadius: 5, fontSize: 12, cursor: "pointer",
+                  background: C.gnDim, border: `1px solid ${C.green}`, color: C.green,
+                  display: "flex", alignItems: "center", gap: 5, marginLeft: "auto",
+                  opacity: (loadingStartup || startupRoles.length === 0) ? 0.5 : 1,
+                }}
+              >
+                {loadingStartup ? <Loader2 size={12} className="animate-spin" /> : <Search size={12} />}
+                {loadingStartup ? "Scanning…" : "Find Jobs"}
               </button>
             </div>
           </div>
-          {loadingJobs && !jobs.length ? <Skeleton count={4} /> :
-            jobs.length ? jobs.map((j, i) => (
-              <JobCard key={i} job={j} active={selected === j}
-                onClick={() => { setSelected(j); setDraft(null); setActivePanel("action"); }} />
-            )) : (
-              <div className="text-center py-10 text-slate-600">
-                <Globe size={32} className="mx-auto mb-3 opacity-40" />
-                <p className="text-[13px]">No jobs yet. Hit Scan to search LinkedIn.</p>
-              </div>
-            )
-          }
-        </div>
 
-        {/* COL 2: SIGNALS */}
-        <div className={`border-r border-slate-900 p-4 overflow-y-auto ${activePanel !== "signals" ? "hidden lg:block" : ""}`}
-          style={{ maxHeight: "calc(100vh - 170px)" }}>
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <Zap size={14} color="#f59e0b" />
-              <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Signals</span>
-            </div>
-            <button onClick={searchSignals} disabled={loadingSignals}
-              style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", padding: 4 }}>
-              {loadingSignals ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
-            </button>
+          {/* Results */}
+          <div className="grid grid-cols-1 lg:grid-cols-3" style={{ gap: 12 }}>
+            {loadingStartup && !startupJobs.length
+              ? <Skeleton count={9} />
+              : startupJobs.length
+                ? startupJobs.map((j, i) => {
+                    const platColor = j.platform === "Ashby" ? "#7c3aed"
+                      : j.platform === "Greenhouse" ? "#059669"
+                      : j.platform === "Lever" ? "#0ea5e9"
+                      : j.platform === "Dover" ? "#f59e0b" : C.green;
+                    return (
+                      <Card key={i} className="fade-up" accentColor={platColor}>
+                        <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 6, marginBottom: 6 }}>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontSize: 12, fontWeight: 700, color: C.text, lineHeight: 1.4 }}>
+                              {j.title}
+                            </div>
+                            <div style={{ fontSize: 12, color: C.text2, marginTop: 2 }}>
+                              {j.company}
+                            </div>
+                          </div>
+                          <span style={{
+                            fontSize: 9, padding: "2px 7px", borderRadius: 20, flexShrink: 0,
+                            background: platColor + "22", border: `1px solid ${platColor}`,
+                            color: platColor, fontFamily: "var(--font-mono)", textTransform: "uppercase",
+                          }}>
+                            {j.platform}
+                          </span>
+                        </div>
+                        {j.description && (
+                          <p style={{ fontSize: 11, color: C.text3, lineHeight: 1.5, margin: "0 0 10px",
+                            display: "-webkit-box", WebkitLineClamp: 3, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                            {j.description}
+                          </p>
+                        )}
+                        {j.url && (
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <a href={j.url} target="_blank" rel="noopener noreferrer" style={{
+                              display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11,
+                              padding: "4px 10px", borderRadius: 5,
+                              background: platColor + "22", border: `1px solid ${platColor}`,
+                              color: platColor, textDecoration: "none", fontWeight: 600,
+                            }}>
+                              View <ExternalLink size={10} />
+                            </a>
+                            <button
+                              onClick={() => startApply(j)}
+                              disabled={!!applySession}
+                              style={{
+                                display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11,
+                                padding: "4px 10px", borderRadius: 5, cursor: applySession ? "not-allowed" : "pointer",
+                                background: C.aDim, border: `1px solid ${C.accent}`,
+                                color: C.accent, fontWeight: 600, opacity: applySession ? 0.4 : 1,
+                              }}
+                            >
+                              <Rocket size={10} /> Auto Apply
+                            </button>
+                          </div>
+                        )}
+                      </Card>
+                    );
+                  })
+                : (
+                  <div style={{ textAlign: "center", padding: "60px 0", color: C.text3, gridColumn: "1/-1" }}>
+                    <Rocket size={28} style={{ margin: "0 auto 12px", opacity: 0.4 }} />
+                    <p style={{ fontSize: 12, marginBottom: 16 }}>
+                      Select roles and platforms, then hit <strong>Find Jobs</strong>.
+                    </p>
+                  </div>
+                )
+            }
           </div>
-          {loadingSignals && !signals.length ? <Skeleton count={3} /> :
-            signals.length ? signals.map((s, i) => (
-              <SignalCard key={i} signal={s} active={selected === s}
-                onClick={() => { setSelected(s); setDraft(null); setActivePanel("action"); }} />
-            )) : (
-              <div className="text-center py-10 text-slate-600">
-                <Radio size={32} className="mx-auto mb-3 opacity-40" />
-                <p className="text-[13px]">No signals yet. Hit Scan to detect.</p>
-              </div>
-            )
-          }
         </div>
+      )}
 
-        {/* COL 3: ACTION */}
-        <div className={`p-4 overflow-y-auto ${activePanel !== "action" ? "hidden lg:block" : ""}`}
-          style={{ maxHeight: "calc(100vh - 170px)" }}>
-          <div className="flex items-center gap-2 mb-3">
-            <Send size={14} color="#f472b6" />
-            <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Action panel</span>
-          </div>
+      {/* ── MAIN GRID ──────────────────────────────────────────────────────── */}
+      {activePanel !== "resume" && activePanel !== "posts" && activePanel !== "startups" && (
+        <div className="grid grid-cols-1 lg:grid-cols-2" style={{ minHeight: "calc(100vh - 148px)" }}>
 
-          {selected ? (
-            <div className="fade-in">
-              <div className="p-4 rounded-xl border border-slate-800 mb-3" style={{ background: "#0f172a" }}>
-                <div className="flex justify-between items-start mb-2">
-                  <h3 className="text-base font-semibold text-slate-100 m-0">
-                    {selected.title || `${selected.author}'s post`}
-                  </h3>
-                  <button onClick={() => setSelected(null)}
-                    style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer" }}>
-                    <X size={16} />
+          {/* COL 1: JOBS */}
+          <div className={`p-4 overflow-y-auto ${activePanel !== "jobs" ? "hidden lg:block" : ""}`}
+            style={{ borderRight: `1px solid ${C.border}`, maxHeight: "calc(100vh - 148px)" }}>
+            <SectionHeader
+              icon={<Briefcase size={13} />}
+              label="Job radar"
+              color={C.accent}
+              right={
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <select
+                    value={tprSeconds}
+                    onChange={e => setTprSeconds(Number(e.target.value))}
+                    style={{
+                      fontSize: 11,
+                      borderRadius: 4,
+                      border: `1px solid ${C.border2}`,
+                      background: C.bg2,
+                      color: C.text2,
+                      padding: "3px 6px",
+                      outline: "none",
+                      fontFamily: "var(--font-mono)",
+                      cursor: "pointer",
+                    }}>
+                    <option value={3600}>1h</option>
+                    <option value={7200}>2h</option>
+                    <option value={14400}>4h</option>
+                    <option value={86400}>24h</option>
+                  </select>
+                  <button onClick={searchJobs} disabled={loadingJobs} style={{
+                    background: "none", border: "none", color: C.text2, cursor: "pointer", padding: 3, display: "flex",
+                  }}>
+                    {loadingJobs ? <Loader2 size={13} className="animate-spin" /> : <RefreshCw size={13} />}
                   </button>
                 </div>
-                <div className="text-[13px] text-slate-400 mb-2 flex items-center gap-1">
-                  <Building size={12} />{selected.company}
-                  {selected.location && <><span className="text-slate-700 mx-1">·</span><MapPin size={12} />{selected.location}</>}
-                </div>
-                <p className="text-[13px] text-slate-300 leading-relaxed m-0">{selected.description || selected.content}</p>
-                {selected.url && (
-                  <a href={selected.url} target="_blank" rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-xs mt-2.5 no-underline" style={{ color: "#22d3ee" }}>
-                    <ExternalLink size={12} /> View on LinkedIn
-                  </a>
-                )}
-              </div>
-
-              {!draft && (
-                <button onClick={() => generateOutreach(selected)} disabled={loadingDraft}
-                  className="w-full py-3 rounded-xl text-[13px] font-semibold flex items-center justify-center gap-2 mb-3 transition-all"
-                  style={{
-                    border: "1px solid #f472b633",
-                    background: loadingDraft ? "#1e293b" : "#f472b618",
-                    color: loadingDraft ? "#94a3b8" : "#f472b6", cursor: "pointer",
-                  }}>
-                  {loadingDraft ? <><Loader2 size={14} className="animate-spin" /> Crafting...</> : <><Sparkles size={14} /> Generate outreach</>}
-                </button>
-              )}
-
-              {draft && (
-                <div ref={draftRef} className="slide-up mb-3">
-                  <div className="p-4 rounded-xl" style={{ border: "1px solid #6366f133", background: "#6366f108" }}>
-                    <div className="flex items-center gap-1.5 mb-3">
-                      <Mail size={14} color="#818cf8" />
-                      <span className="text-xs font-semibold uppercase tracking-wide" style={{ color: "#818cf8" }}>Draft ready</span>
-                      <button onClick={() => generateOutreach(selected)}
-                        className="ml-auto flex items-center gap-1 text-[11px] text-slate-500 hover:text-slate-300"
-                        style={{ background: "none", border: "none", cursor: "pointer" }}>
-                        <RefreshCw size={11} /> Redo
-                      </button>
-                    </div>
-                    <div className="text-xs text-slate-400 mb-1">Subject:</div>
-                    <div className="text-sm font-medium text-slate-200 mb-3">{draft.subject}</div>
-                    <div className="text-xs text-slate-400 mb-1">Body:</div>
-                    <div className="text-[13px] text-slate-300 leading-relaxed whitespace-pre-wrap">{draft.body}</div>
+              }
+            />
+            {loadingJobs && !jobs.length
+              ? <Skeleton count={4} />
+              : jobs.length
+                ? jobs.map((j, i) => (
+                    <JobCard key={i} job={j} active={selected === j} onClick={() => selectItem(j)} />
+                  ))
+                : (
+                  <div style={{ textAlign: "center", padding: "48px 0", color: C.text3 }}>
+                    <Globe size={28} style={{ margin: "0 auto 12px", opacity: 0.4 }} />
+                    <p style={{ fontSize: 12 }}>No jobs yet. Hit Scan.</p>
                   </div>
-                  <div className="mt-3 flex flex-col gap-2">
-                    <input value={emailTo} onChange={e => setEmailTo(e.target.value)}
-                      placeholder="Recipient email address"
-                      className="w-full p-2.5 rounded-lg border border-slate-800 bg-slate-950 text-slate-100 text-[13px] outline-none focus:border-cyan-700" />
-                    <div className="flex gap-2">
-                      <button onClick={sendEmail} disabled={!emailTo || sendingEmail}
-                        className="flex-1 py-2.5 rounded-lg text-[13px] font-semibold flex items-center justify-center gap-1.5 transition-all"
-                        style={{
-                          background: emailTo ? "linear-gradient(135deg, #10b981, #34d399)" : "#1e293b",
-                          color: emailTo ? "#020617" : "#64748b", border: "none",
-                          cursor: emailTo ? "pointer" : "default",
-                        }}>
-                        {sendingEmail ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-                        {sendingEmail ? "Sending..." : "Send via Gmail"}
-                      </button>
-                    </div>
-                    <button onClick={() => navigator.clipboard?.writeText(`Subject: ${draft.subject}\n\n${draft.body}`)}
-                      className="py-2 rounded-lg border border-slate-800 text-xs text-slate-500 flex items-center justify-center gap-1.5 hover:border-slate-600"
-                      style={{ background: "none", cursor: "pointer" }}>
-                      <Copy size={12} /> Copy to clipboard
+                )
+            }
+          </div>
+
+          {/* COL 2: ACTION */}
+          <div className={`p-4 overflow-y-auto ${activePanel !== "action" ? "hidden lg:block" : ""}`}
+            style={{ maxHeight: "calc(100vh - 148px)" }}>
+            <SectionHeader icon={<Send size={13} />} label="Action" color="#f472b6" />
+
+            {selected ? (
+              <div className="fade-up">
+                {/* Selected item card */}
+                <div style={{
+                  padding: 14,
+                  borderRadius: 6,
+                  border: `1px solid ${C.border2}`,
+                  borderTop: `2px solid ${C.accent}`,
+                  background: C.bg2,
+                  marginBottom: 12,
+                }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+                    <h3 style={{ fontSize: 14, fontWeight: 600, color: C.text, lineHeight: 1.3, flex: 1, marginRight: 8 }}>
+                      {selected.title || `${selected.author}'s post`}
+                    </h3>
+                    <button onClick={() => setSelected(null)}
+                      style={{ background: "none", border: "none", color: C.text2, cursor: "pointer", padding: 2, display: "flex" }}>
+                      <X size={14} />
                     </button>
                   </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 11, color: C.text2, marginBottom: 8, fontFamily: "var(--font-mono)" }}>
+                    <Building size={11} />{selected.company}
+                    {selected.location && <><span style={{ color: C.text3 }}>·</span><MapPin size={11} />{selected.location}</>}
+                  </div>
+                  <p style={{ fontSize: 12, color: C.text, lineHeight: 1.55, margin: 0 }}>
+                    {(selected.description || selected.content || "").slice(0, 280)}
+                    {(selected.description || selected.content || "").length > 280 ? "…" : ""}
+                  </p>
+                  {selected.url && (
+                    <a href={selected.url} target="_blank" rel="noopener noreferrer"
+                      style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, marginTop: 10, color: C.accent, textDecoration: "none" }}>
+                      <ExternalLink size={11} /> View posting
+                    </a>
+                  )}
+                </div>
+
+                {/* Generate outreach */}
+                {!draft && (
+                  <Btn full onClick={() => generateOutreach(selected)} disabled={loadingDraft} color="#f472b6">
+                    {loadingDraft
+                      ? <><Loader2 size={13} className="animate-spin" /> Crafting...</>
+                      : <><Sparkles size={13} /> Generate outreach</>}
+                  </Btn>
+                )}
+
+                {/* Draft */}
+                {draft && (
+                  <div ref={draftRef} className="slide-in" style={{ marginBottom: 12 }}>
+                    <div style={{
+                      padding: 14,
+                      borderRadius: 6,
+                      border: `1px solid ${C.vBorder}`,
+                      background: C.vDim,
+                      marginBottom: 10,
+                    }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
+                        <Mail size={13} color={C.violet} />
+                        <Label color={C.violet}>Draft ready</Label>
+                        <button onClick={() => generateOutreach(selected)}
+                          style={{ marginLeft: "auto", background: "none", border: "none", color: C.text2, cursor: "pointer",
+                            display: "flex", alignItems: "center", gap: 4, fontSize: 11 }}>
+                          <RefreshCw size={11} /> Redo
+                        </button>
+                      </div>
+                      <Label>Subject</Label>
+                      <div style={{ fontSize: 13, fontWeight: 500, color: C.text, marginTop: 4, marginBottom: 10 }}>{draft.subject}</div>
+                      <Label>Body</Label>
+                      <div style={{ fontSize: 12, color: C.text, lineHeight: 1.65, marginTop: 4, whiteSpace: "pre-wrap" }}>{draft.body}</div>
+                    </div>
+
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                      <Input value={emailTo} onChange={e => setEmailTo(e.target.value)} placeholder="Recipient email address" />
+                      <Btn full onClick={sendEmail} disabled={!emailTo || sendingEmail} color={C.green}>
+                        {sendingEmail ? <><Loader2 size={13} className="animate-spin" /> Sending…</> : <><Send size={13} /> Send via Gmail</>}
+                      </Btn>
+                      <Btn full outline onClick={() => navigator.clipboard?.writeText(`Subject: ${draft.subject}\n\n${draft.body}`)}>
+                        <Copy size={12} /> Copy to clipboard
+                      </Btn>
+                    </div>
+                  </div>
+                )}
+
+                {/* Autofill */}
+                {selected?.url && (
+                  <div style={{ marginTop: 16 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+                      <ClipboardList size={13} color={C.violet} />
+                      <Label color={C.violet}>Autofill Application</Label>
+                    </div>
+
+                    {!autofillFields && (
+                      <Btn full onClick={() => generateAutofill(selected)} disabled={loadingAutofill} color={C.violet}>
+                        {loadingAutofill
+                          ? <><Loader2 size={13} className="animate-spin" /> Generating fields…</>
+                          : <><ClipboardList size={13} /> Generate autofill fields</>}
+                      </Btn>
+                    )}
+
+                    {autofillFields && (
+                      <div style={{
+                        borderRadius: 6,
+                        border: `1px solid ${C.border2}`,
+                        background: C.bg2,
+                        overflow: "hidden",
+                        marginBottom: 8,
+                      }}>
+                        <div style={{
+                          display: "flex", alignItems: "center", justifyContent: "space-between",
+                          padding: "8px 12px",
+                          borderBottom: `1px solid ${C.border}`,
+                        }}>
+                          <Label>Generated fields</Label>
+                          <button onClick={() => generateAutofill(selected)}
+                            style={{ background: "none", border: "none", color: C.text2, cursor: "pointer",
+                              display: "flex", alignItems: "center", gap: 4, fontSize: 11 }}>
+                            <RefreshCw size={11} /> Redo
+                          </button>
+                        </div>
+                        <div style={{ padding: 10, maxHeight: 260, overflowY: "auto" }}>
+                          {Object.entries(autofillFields).map(([key, value]) => value ? (
+                            <div key={key} style={{ display: "flex", alignItems: "flex-start", gap: 8, marginBottom: 8 }}>
+                              <div style={{ flex: 1, minWidth: 0 }}>
+                                <div style={{ fontSize: 10, color: C.text2, textTransform: "uppercase", letterSpacing: "0.08em", fontFamily: "var(--font-display)", marginBottom: 2 }}>
+                                  {key.replace(/_/g, " ")}
+                                </div>
+                                <div style={{ fontSize: 12, color: C.text, lineHeight: 1.4,
+                                  display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical", overflow: "hidden" }}>
+                                  {value}
+                                </div>
+                              </div>
+                              <button onClick={() => navigator.clipboard?.writeText(value)}
+                                style={{ background: "none", border: "none", color: C.text3, cursor: "pointer", padding: 2, display: "flex", flexShrink: 0 }}>
+                                <Copy size={11} />
+                              </button>
+                            </div>
+                          ) : null)}
+                        </div>
+                        <div style={{ display: "flex", gap: 6, padding: "8px 10px", borderTop: `1px solid ${C.border}` }}>
+                          <button
+                            onClick={() => {
+                              const fieldText = Object.entries(autofillFields).filter(([, v]) => v)
+                                .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`).join('\n\n');
+                              const prompt = `Autofill this job application using Playwright MCP.\n\nJob URL: ${selected.url}\n\nPre-generated answers:\n${fieldText}\n\nNavigate to the URL, click Apply, fill every visible field using the answers above. For any question not covered, generate a suitable answer from context. Leave the browser open for me to review before submitting.`;
+                              navigator.clipboard?.writeText(prompt);
+                            }}
+                            style={{
+                              flex: 1, padding: "7px 10px", borderRadius: 4,
+                              background: "linear-gradient(135deg, #7c3aed, #9b72f5)",
+                              color: "#fff", border: "none", cursor: "pointer",
+                              fontSize: 11, fontFamily: "var(--font-display)", fontWeight: 700,
+                              letterSpacing: "0.06em", textTransform: "uppercase",
+                              display: "flex", alignItems: "center", justifyContent: "center", gap: 5,
+                            }}>
+                            <Copy size={11} /> Copy Claude Code prompt
+                          </button>
+                          <button
+                            onClick={() => navigator.clipboard?.writeText(
+                              Object.entries(autofillFields).filter(([, v]) => v)
+                                .map(([k, v]) => `${k.replace(/_/g, ' ')}: ${v}`).join('\n\n')
+                            )}
+                            style={{
+                              padding: "7px 10px", borderRadius: 4,
+                              border: `1px solid ${C.border2}`, background: "transparent",
+                              color: C.text2, cursor: "pointer", fontSize: 11,
+                              display: "flex", alignItems: "center", gap: 4,
+                            }}>
+                            <Copy size={11} /> All
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ textAlign: "center", padding: "60px 0", color: C.text3 }}>
+                <MessageSquare size={32} style={{ margin: "0 auto 12px", opacity: 0.3 }} />
+                <p style={{ fontSize: 13, color: C.text2, marginBottom: 4 }}>Select a job or signal</p>
+                <p style={{ fontSize: 11 }}>Click any item to generate outreach</p>
+              </div>
+            )}
+
+            {/* ── AUTO-APPLY ── */}
+            {selected?.url && (() => {
+              const STEPS = [
+                { key: "starting",        label: "Launch browser",       icon: <Rocket size={11} /> },
+                { key: "navigating",      label: "Navigate to posting",  icon: <Globe size={11} /> },
+                { key: "filling",         label: "Fill form fields",     icon: <ClipboardList size={11} /> },
+                { key: "awaiting_confirm",label: "Review & confirm",     icon: <AlertCircle size={11} /> },
+                { key: "submitting",      label: "Submit application",   icon: <Send size={11} /> },
+                { key: "submitted",       label: "Done",                 icon: <CheckCircle size={11} /> },
+              ];
+              const currentIdx = STEPS.findIndex(s => s.key === applyStatus?.status);
+              const isActive  = s => applyStatus?.status === s.key;
+              const isDone    = s => currentIdx > STEPS.findIndex(x => x.key === s.key);
+              const isFailed  = applyStatus?.status === "failed";
+              const isAborted = applyStatus?.status === "aborted";
+
+              return (
+                <div style={{ marginTop: 16 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <Rocket size={13} color={C.accent} />
+                      <Label color={C.accent}>Auto-Apply</Label>
+                    </div>
+                    {applySession && (
+                      <button onClick={abortApply} style={{
+                        background: "none", border: "none", color: C.text2,
+                        cursor: "pointer", fontSize: 11, display: "flex", alignItems: "center", gap: 4,
+                        fontFamily: "var(--font-display)", fontWeight: 600, letterSpacing: "0.06em",
+                        textTransform: "uppercase",
+                      }}>
+                        <X size={11} /> Abort
+                      </button>
+                    )}
+                  </div>
+
+                  {!applySession && (
+                    <Btn full onClick={() => startApply(selected)} color={C.accent}>
+                      <Rocket size={13} /> Start autonomous apply
+                    </Btn>
+                  )}
+
+                  {applyStatus && (
+                    <div style={{
+                      borderRadius: 8,
+                      border: `1px solid ${isFailed ? C.red + "44" : isAborted ? C.text3 : C.aBorder}`,
+                      background: isFailed ? C.red + "08" : C.aDim,
+                      overflow: "hidden",
+                    }}>
+                      {/* Step timeline */}
+                      <div style={{ padding: "14px 14px 10px" }}>
+                        {STEPS.map((step, i) => {
+                          const active = isActive(step);
+                          const done   = isDone(step);
+                          const color  = done ? C.green : active ? C.accent : C.text3;
+                          const last   = i === STEPS.length - 1;
+                          return (
+                            <div key={step.key} style={{ display: "flex", gap: 10, position: "relative" }}>
+                              {/* Line connector */}
+                              {!last && (
+                                <div style={{
+                                  position: "absolute",
+                                  left: 11, top: 22,
+                                  width: 1,
+                                  height: "calc(100% - 8px)",
+                                  background: done ? C.green + "55" : C.border2,
+                                  transition: "background 0.4s",
+                                }} />
+                              )}
+                              {/* Circle */}
+                              <div style={{
+                                width: 22, height: 22, borderRadius: "50%", flexShrink: 0,
+                                border: `1.5px solid ${color}`,
+                                background: done ? C.green + "22" : active ? C.accent + "22" : "transparent",
+                                display: "flex", alignItems: "center", justifyContent: "center",
+                                color,
+                                transition: "all 0.3s",
+                                position: "relative", zIndex: 1,
+                              }}>
+                                {done
+                                  ? <CheckCircle size={11} color={C.green} />
+                                  : active && !["awaiting_confirm","submitted"].includes(step.key)
+                                    ? <Loader2 size={11} className="animate-spin" color={C.accent} />
+                                    : step.icon
+                                }
+                              </div>
+                              {/* Label + message */}
+                              <div style={{ paddingBottom: last ? 0 : 14, flex: 1, minWidth: 0 }}>
+                                <div style={{
+                                  fontSize: 12,
+                                  fontFamily: "var(--font-display)",
+                                  fontWeight: active ? 700 : 500,
+                                  letterSpacing: "0.04em",
+                                  textTransform: "uppercase",
+                                  color: done ? C.green : active ? C.text : C.text3,
+                                  transition: "color 0.3s",
+                                }}>{step.label}</div>
+                                {active && applyStatus.message && (
+                                  <div style={{
+                                    fontSize: 11, color: C.text2, marginTop: 2,
+                                    fontFamily: "var(--font-mono)",
+                                    animation: "fadeUp 0.3s both",
+                                  }}>{applyStatus.message}</div>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {/* Failed / aborted state */}
+                        {(isFailed || isAborted) && (
+                          <div style={{
+                            marginTop: 10, padding: "8px 10px", borderRadius: 5,
+                            background: isFailed ? C.red + "15" : C.bg3,
+                            border: `1px solid ${isFailed ? C.red + "33" : C.border2}`,
+                            fontSize: 11, color: isFailed ? "#fca5a5" : C.text2,
+                            fontFamily: "var(--font-mono)",
+                          }}>
+                            {applyStatus.error || applyStatus.message}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Screenshot panel */}
+                      {applyStatus.screenshot && (
+                        <div style={{ padding: "0 12px 12px" }}>
+                          <div style={{
+                            fontSize: 10, color: C.text2, marginBottom: 6,
+                            fontFamily: "var(--font-mono)",
+                            display: "flex", alignItems: "center", gap: 5,
+                          }}>
+                            <div style={{
+                              width: 6, height: 6, borderRadius: "50%", background: C.accent,
+                              animation: applyStatus.status === "awaiting_confirm" ? "pulse-accent 1.5s ease-in-out infinite" : "none",
+                            }} />
+                            Browser preview
+                          </div>
+                          <img
+                            src={`data:image/png;base64,${applyStatus.screenshot}`}
+                            alt="Browser state"
+                            style={{
+                              width: "100%", borderRadius: 5,
+                              border: `1px solid ${applyStatus.status === "awaiting_confirm" ? C.gold + "55" : C.border2}`,
+                              display: "block",
+                            }}
+                          />
+                        </div>
+                      )}
+
+                      {/* Confirm CTA */}
+                      {applyStatus.status === "awaiting_confirm" && (
+                        <div style={{
+                          padding: "12px 12px",
+                          borderTop: `1px solid ${C.gold + "33"}`,
+                          background: C.gold + "08",
+                        }}>
+                          <p style={{ fontSize: 11, color: C.gold, marginBottom: 10, fontFamily: "var(--font-mono)" }}>
+                            ⚠ Review the form above. Confirm only if everything looks correct.
+                          </p>
+                          <div style={{ display: "flex", gap: 8 }}>
+                            <Btn full onClick={confirmApply} color={C.green}>
+                              <CheckCircle size={13} /> Confirm & submit
+                            </Btn>
+                            <Btn outline onClick={abortApply} color={C.red}>
+                              <X size={13} /> Abort
+                            </Btn>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Terminal reset */}
+                      {["submitted","failed","aborted"].includes(applyStatus.status) && (
+                        <div style={{ padding: "10px 12px", borderTop: `1px solid ${C.border}` }}>
+                          <Btn full outline onClick={() => { setApplySession(null); setApplyStatus(null); }}>
+                            Start new apply session
+                          </Btn>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
+            {/* History */}
+            {history.length > 0 && (
+              <div style={{ marginTop: 24 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 10 }}>
+                  <CheckCircle size={13} color={C.green} />
+                  <Label color={C.green}>Outreach log</Label>
+                </div>
+                {history.map((h, i) => <HistoryItem key={i} item={h} />)}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── RESUME PANEL ───────────────────────────────────────────────────── */}
+      {activePanel === "resume" && (
+        <div style={{ maxWidth: 640, margin: "0 auto", padding: "24px 20px" }}>
+          <SectionHeader icon={<FileText size={14} />} label="Resume Tailor" color={C.violet} />
+
+          {/* Upload zone */}
+          <div style={{
+            padding: 20,
+            borderRadius: 8,
+            border: `1px solid ${C.border2}`,
+            background: C.bg2,
+            marginBottom: 14,
+          }}>
+            <Label>Upload resume (.docx or .txt)</Label>
+            <label style={{
+              display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+              gap: 8, padding: "28px 20px", marginTop: 10,
+              borderRadius: 6,
+              border: `2px dashed ${resumeFile ? C.violet : C.border2}`,
+              background: resumeFile ? C.vDim : C.bg,
+              cursor: "pointer",
+              transition: "border-color 0.2s, background 0.2s",
+            }}>
+              <Upload size={20} color={resumeFile ? C.violet : C.text3} />
+              <span style={{ fontSize: 13, color: resumeFile ? C.violet : C.text2 }}>
+                {resumeFile ? resumeFile.name : "Click to upload resume"}
+              </span>
+              <span style={{ fontSize: 11, color: C.text3, fontFamily: "var(--font-mono)" }}>
+                .docx · .txt
+              </span>
+              <input type="file" accept=".docx,.txt" style={{ display: "none" }}
+                onChange={e => { setResumeFile(e.target.files[0]); setTailoredResume(null); }} />
+            </label>
+          </div>
+
+          {/* Job selector */}
+          <div style={{
+            padding: 20, borderRadius: 8,
+            border: `1px solid ${C.border2}`, background: C.bg2, marginBottom: 14,
+          }}>
+            <Label>Select job to tailor for</Label>
+            {jobs.length ? (
+              <select
+                onChange={e => { const j = jobs[parseInt(e.target.value)]; setSelected(j); setTailoredResume(null); }}
+                style={{
+                  marginTop: 10, width: "100%",
+                  padding: "9px 12px", borderRadius: 5,
+                  border: `1px solid ${C.border2}`,
+                  background: C.bg, color: C.text,
+                  fontSize: 13, outline: "none",
+                  fontFamily: "var(--font-body)",
+                  cursor: "pointer",
+                }}>
+                <option value="">— Pick a job —</option>
+                {jobs.map((j, i) => (
+                  <option key={i} value={i}>{j.title} @ {j.company}</option>
+                ))}
+              </select>
+            ) : (
+              <p style={{ fontSize: 12, color: C.text2, marginTop: 10 }}>
+                No jobs loaded — scan first from Radar tab.
+              </p>
+            )}
+          </div>
+
+          {/* Tailor button */}
+          <Btn
+            full
+            onClick={() => tailorResume(selected)}
+            disabled={!resumeFile || !selected || loadingTailor}
+            color={C.violet}
+          >
+            {loadingTailor
+              ? <><Loader2 size={13} className="animate-spin" /> Tailoring resume…</>
+              : <><Sparkles size={13} /> Tailor resume</>}
+          </Btn>
+
+          {/* Results */}
+          {tailoredResume && (
+            <div className="slide-in" style={{ marginTop: 20, display: "flex", flexDirection: "column", gap: 12 }}>
+
+              {/* Match score */}
+              <div style={{
+                display: "flex", alignItems: "center", gap: 10,
+                padding: 12, borderRadius: 6,
+                border: `1px solid ${C.border2}`, background: C.bg2,
+              }}>
+                <ScoreBadge score={tailoredResume.match_score} />
+                <span style={{ fontSize: 12, color: C.text2, lineHeight: 1.5 }}>{tailoredResume.tailoring_notes}</span>
+              </div>
+
+              {/* Summary */}
+              {[{
+                label: "Summary", content: tailoredResume.summary,
+                copyText: tailoredResume.summary,
+                render: () => <p style={{ fontSize: 13, color: C.text, lineHeight: 1.65, margin: 0 }}>{tailoredResume.summary}</p>
+              }].map(s => (
+                <div key={s.label} style={{ padding: 14, borderRadius: 6, border: `1px solid ${C.border2}`, background: C.bg2 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                    <Label>{s.label}</Label>
+                    <button onClick={() => navigator.clipboard?.writeText(s.copyText)}
+                      style={{ background: "none", border: "none", color: C.text2, cursor: "pointer",
+                        display: "flex", alignItems: "center", gap: 4, fontSize: 11 }}>
+                      <Copy size={11} /> Copy
+                    </button>
+                  </div>
+                  {s.render()}
+                </div>
+              ))}
+
+              {/* Skills */}
+              <div style={{ padding: 14, borderRadius: 6, border: `1px solid ${C.border2}`, background: C.bg2 }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+                  <Label>Skills (reordered)</Label>
+                  <button onClick={() => navigator.clipboard?.writeText(tailoredResume.skills.join(", "))}
+                    style={{ background: "none", border: "none", color: C.text2, cursor: "pointer",
+                      display: "flex", alignItems: "center", gap: 4, fontSize: 11 }}>
+                    <Copy size={11} /> Copy
+                  </button>
+                </div>
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                  {tailoredResume.skills.map((s, i) => (
+                    <span key={i} style={{
+                      fontSize: 11, padding: "3px 8px", borderRadius: 4,
+                      background: C.vDim, color: C.violet,
+                      border: `1px solid ${C.vBorder}`,
+                      fontFamily: "var(--font-mono)",
+                    }}>{s}</span>
+                  ))}
+                </div>
+              </div>
+
+              {/* Experience bullets */}
+              {Object.entries(tailoredResume.experience_bullets || {}).map(([role, bullets]) => (
+                <div key={role} style={{ padding: 14, borderRadius: 6, border: `1px solid ${C.border2}`, background: C.bg2 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 10 }}>
+                    <Label>{role}</Label>
+                    <button onClick={() => navigator.clipboard?.writeText(bullets.join("\n"))}
+                      style={{ background: "none", border: "none", color: C.text2, cursor: "pointer",
+                        display: "flex", alignItems: "center", gap: 4, fontSize: 11, flexShrink: 0, marginLeft: 8 }}>
+                      <Copy size={11} /> Copy
+                    </button>
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: 16 }}>
+                    {bullets.map((b, i) => (
+                      <li key={i} style={{ fontSize: 13, color: C.text, lineHeight: 1.65, marginBottom: 4 }}>{b}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+
+              {/* Keywords */}
+              {tailoredResume.keywords_added?.length > 0 && (
+                <div style={{ padding: 14, borderRadius: 6, border: `1px solid ${C.border2}`, background: C.bg2 }}>
+                  <Label style={{ display: "block", marginBottom: 10 }}>Keywords injected</Label>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
+                    {tailoredResume.keywords_added.map((k, i) => (
+                      <span key={i} style={{
+                        fontSize: 11, padding: "3px 8px", borderRadius: 4,
+                        background: C.gnDim, color: C.green,
+                        border: `1px solid ${C.green}33`,
+                        fontFamily: "var(--font-mono)",
+                      }}>{k}</span>
+                    ))}
+                  </div>
                 </div>
               )}
-            </div>
-          ) : (
-            <div className="text-center py-16 text-slate-600">
-              <MessageSquare size={36} className="mx-auto mb-4 opacity-30" />
-              <p className="text-sm text-slate-500 mb-1">Select a job or signal</p>
-              <p className="text-xs">Click any item to generate personalized outreach</p>
-            </div>
-          )}
 
-          {history.length > 0 && (
-            <div className="mt-5">
-              <div className="flex items-center gap-2 mb-2.5">
-                <CheckCircle size={14} color="#10b981" />
-                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Outreach log</span>
+              {/* Actions */}
+              <div style={{ display: "flex", gap: 8 }}>
+                <Btn full onClick={() => setShowResumePreview(true)} color={C.violet}>
+                  <FileText size={13} /> Preview full resume
+                </Btn>
+                <Btn outline onClick={() => {
+                  const text = [
+                    "SUMMARY\n" + tailoredResume.summary,
+                    "\nSKILLS\n" + tailoredResume.skills.join(", "),
+                    ...Object.entries(tailoredResume.experience_bullets || {}).map(
+                      ([role, bullets]) => `\n${role}\n` + bullets.map(b => `• ${b}`).join("\n")
+                    ),
+                  ].join("\n");
+                  navigator.clipboard?.writeText(text);
+                }}>
+                  <Copy size={13} />
+                </Btn>
               </div>
-              {history.map((h, i) => <HistoryItem key={i} item={h} />)}
             </div>
           )}
         </div>
-      </div>
+      )}
     </div>
   );
 }

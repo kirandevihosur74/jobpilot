@@ -898,50 +898,76 @@ async def _run_apply_v2(session_id: str, job_url: str, job: dict, prefs: dict):
         event_hooks={"request": [_request_hook]},
         timeout=httpx.Timeout(120.0),
     )
+    # Use GPT-4.1 for browser-use — Anthropic via TokenRouter (Azure backend)
+    # has a hard "compiled grammar too large" limit that breaks browser-use's
+    # tool schema. GPT-4.1 handles the same schema natively.
+    # Can override via APPLY_MODEL env var (e.g. "anthropic/claude-sonnet-4.6")
+    apply_model = os.getenv("APPLY_MODEL", "openai/gpt-4.1")
     llm = ChatOpenAI(
-        model="anthropic/claude-sonnet-4.6",
+        model=apply_model,
         api_key=tk_key,
         base_url=tk_url,
         http_client=sanitized_http,
         temperature=0.2,
     )
-    logger.info("TokenRouter LLM ready (Claude Sonnet 4.6, schema sanitizer active)")
+    logger.info("TokenRouter LLM ready (model=%s, schema sanitizer active)", apply_model)
 
     candidate = _build_candidate_brief(prefs)
-    resume_instruction = (
-        f"\n\nRESUME FILE: {resume_path}\n"
-        "STEP 1 (MOST IMPORTANT): Upload the resume file FIRST. "
-        "Find the file upload field (usually labeled 'Resume', 'CV', 'Upload Resume', or has a paperclip icon) "
-        "and upload the file at the path above. Most ATS systems (Ashby, Greenhouse, Lever) will auto-fill "
-        "name, email, phone, work history, and education from the resume parser — saving you manual work. "
-        "Wait 3-5 seconds after upload for parsing to complete, then verify the auto-filled fields."
-        if resume_path
-        else "\n\nNote: No resume file uploaded. Skip resume upload fields — leave empty (user will handle manually)."
-    )
+    has_resume = bool(resume_path)
 
-    fill_task = f"""You are filling out a job application on behalf of a candidate. Goal: navigate to the job URL, find the apply form, and fill EVERY field accurately. Stop just before submitting — the user will review.
+    fill_task = f"""You are filling out a job application for a candidate. Execute steps in EXACT order.
 
-JOB URL: {job_url}
-JOB: {job.get('title', '')} at {job.get('company', '')}
+═══ JOB ═══
+URL: {job_url}
+Title: {job.get('title', '')}
+Company: {job.get('company', '')}
 
-CANDIDATE INFO:
+═══ CANDIDATE ═══
 {candidate}
-{resume_instruction}
 
-INSTRUCTIONS:
-1. Navigate to the job URL.
-2. If there is an "Apply" / "Apply for this job" button, click it to open the application form.
-3. {('Upload the resume file FIRST (see RESUME FILE above), then verify auto-filled fields.' if resume_path else 'Skip resume upload fields.')}
-4. Fill EVERY remaining required form field with the appropriate candidate info.
-5. For dropdowns, pick the option that best matches candidate info.
-6. Demographic / EEO / diversity questions: choose "Decline to answer" or equivalent.
-7. "How did you hear about us?" → "LinkedIn" or "Job Board".
-8. Cover letter field: write a brief 3-sentence note based on the candidate's bio.
-9. Multi-step forms: click Next/Continue until you reach the final review/submit page.
-10. STOP at the final submit page. DO NOT click "Submit Application" / "Submit" / "Send".
-11. When the form is filled and you see the submit button, call done(success=true).
+{f'═══ RESUME FILE (upload this) ═══{chr(10)}{resume_path}{chr(10)}' if has_resume else '═══ NO RESUME FILE ═══{chr(10)}Skip any resume upload fields.{chr(10)}'}
 
-If you hit a login wall, captcha, or cannot proceed, call done(success=false) with reason."""
+═══ EXECUTION ORDER ═══
+
+STEP 1 — Navigate
+  - navigate to JOB URL above
+  - wait for page to load
+
+STEP 2 — Open application form
+  - if you see "Apply" / "Apply for this job" / "Apply Now" button → click it
+  - if URL is jobs.ashbyhq.com and form not visible → navigate to URL + "/application"
+  - wait for form fields to appear
+
+{f'''STEP 3 — Upload resume FIRST (CRITICAL — do this before filling anything)
+  - find the file upload field (label: "Resume" / "CV" / "Upload Resume" / paperclip icon)
+  - upload_file with path: {resume_path}
+  - wait 5 seconds — Ashby/Greenhouse/Lever ATS parsers will auto-fill name/email/phone/work history/education
+  - this saves filling 80% of the form manually''' if has_resume else 'STEP 3 — Skip (no resume to upload)'}
+
+STEP 4 — Fill remaining fields
+  - check which fields are still empty after resume parse
+  - fill each empty REQUIRED field using CANDIDATE info above
+  - dropdowns: pick the option matching candidate's info exactly
+  - EEO/demographic/diversity questions: select "Decline to answer" or "Prefer not to say"
+  - "How did you hear about us?" → pick "LinkedIn" or "Job Board"
+  - "Are you authorized to work in US?" → Yes
+  - "Do you require sponsorship?" → No
+  - cover letter / additional info / why interested: write 2-3 sentences referencing the company name and one specific skill from candidate skills above
+
+STEP 5 — Multi-step forms
+  - if form is paginated, click "Next" / "Continue" between pages
+  - fill required fields on each page
+  - keep going until you see the FINAL submit button
+
+STEP 6 — STOP
+  - DO NOT click Submit / Send / Submit Application
+  - call done(success=true) so the user can review and confirm
+
+═══ FAILURE HANDLING ═══
+  - login wall → done(success=false, "login required")
+  - captcha → done(success=false, "captcha blocking")
+  - 404 / page error → done(success=false, "page failed to load")
+  - cannot find any form fields after 3 navigation attempts → done(success=false, "no form found")"""
 
     profile = BrowserProfile(
         headless=False,

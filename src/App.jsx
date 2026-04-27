@@ -847,7 +847,15 @@ export default function App() {
       // poll status
       applyPollRef.current = setInterval(async () => {
         try {
-          const s = await api(`/api/apply/status/${data.session_id}`, null);
+          const r = await fetch(`${API_BASE}/api/apply/status/${data.session_id}`);
+          if (r.status === 404) {
+            // Backend restarted / session expired — clear stale state
+            clearInterval(applyPollRef.current);
+            setApplySession(null);
+            setApplyStatus(null);
+            return;
+          }
+          const s = await r.json();
           setApplyStatus(s);
           if (["submitted", "failed", "aborted"].includes(s.status)) {
             clearInterval(applyPollRef.current);

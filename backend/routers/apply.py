@@ -769,26 +769,20 @@ async def _run_apply_v2(session_id: str, job_url: str, job: dict, prefs: dict):
         session["message"] = "TOKENROUTER_API_KEY not configured"
         return
 
-    # Prefer ChatAnthropic with native Anthropic key if available (avoids OpenAI-proxy schema issues).
-    # Fall back to ChatOpenAI via TokenRouter with strict-schema disabled.
-    anthropic_key = os.getenv("ANTHROPIC_API_KEY")
-    if anthropic_key:
-        from browser_use.llm import ChatAnthropic
-        llm = ChatAnthropic(model="claude-sonnet-4-5-20250929", api_key=anthropic_key)
-        logger.info("Using ChatAnthropic with native Anthropic API key")
-    else:
-        llm = ChatOpenAI(
-            model="anthropic/claude-sonnet-4.6",
-            api_key=tk_key,
-            base_url=tk_url,
-            # Anthropic via OpenAI-proxy rejects `minimum`, `minItems`, `default` in JSON schemas.
-            # Disable strict structured output + inject schema into system prompt instead.
-            dont_force_structured_output=True,
-            add_schema_to_system_prompt=True,
-            remove_min_items_from_schema=True,
-            remove_defaults_from_schema=True,
-        )
-        logger.info("Using ChatOpenAI via TokenRouter (schema-strict disabled)")
+    # TokenRouter (OpenAI-compatible proxy → Anthropic). Anthropic rejects strict JSON
+    # schema fields like `minimum`, `default`, `minItems` that browser-use auto-generates.
+    # Workaround: skip forced structured output + inject schema into system prompt instead.
+    llm = ChatOpenAI(
+        model="anthropic/claude-sonnet-4.6",
+        api_key=tk_key,
+        base_url=tk_url,
+        dont_force_structured_output=True,
+        add_schema_to_system_prompt=True,
+        remove_min_items_from_schema=True,
+        remove_defaults_from_schema=True,
+        temperature=0.2,
+    )
+    logger.info("Using TokenRouter ChatOpenAI (anthropic/claude-sonnet-4.6, schema-strict off)")
 
     candidate = _build_candidate_brief(prefs)
     fill_task = f"""You are filling out a job application on behalf of a candidate. Goal: navigate to the job URL, find the apply form, and fill EVERY field accurately. Stop just before submitting — the user will review.

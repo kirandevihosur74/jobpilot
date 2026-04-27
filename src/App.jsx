@@ -7,7 +7,9 @@ import {
   Target, Rocket, Globe, MessageSquare, ChevronDown, ClipboardList, Upload,
 } from "lucide-react";
 
-const API_BASE = import.meta.env.VITE_API_URL || "http://localhost:8000";
+// Use 127.0.0.1 not "localhost" — macOS resolves localhost to IPv6 ::1 but
+// uvicorn binds IPv4 only by default, causing silent fetch failures.
+const API_BASE = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 const STORAGE_KEY = "jobpilot:state";
 
 // ─── CSS vars ───────────────────────────────────────────────────────────────

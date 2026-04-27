@@ -961,7 +961,11 @@ If you hit a login wall, captcha, or cannot proceed, call done(success=false) wi
             register_should_stop_callback=should_stop_cb,
             max_failures=3,
             use_vision=True,
-            max_actions_per_step=3,
+            max_actions_per_step=2,
+            # Flash mode = simpler tool schemas (avoids Anthropic grammar-compiler limits)
+            flash_mode=True,
+            use_thinking=False,
+            use_judge=False,
             available_file_paths=[resume_path] if resume_path else None,
         )
 
@@ -1012,6 +1016,9 @@ If submission fails or you see validation errors, call done(success=false) with 
             max_failures=2,
             use_vision=True,
             max_actions_per_step=2,
+            flash_mode=True,
+            use_thinking=False,
+            use_judge=False,
         )
         await submit_agent.run(max_steps=8)
 

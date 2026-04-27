@@ -842,11 +842,21 @@ async def _run_apply_v2(session_id: str, job_url: str, job: dict, prefs: dict):
             logger.info("[%s] Using library/generic resume: %s", session_id, resume_path or "NONE")
 
     try:
-        from browser_use import Agent, BrowserProfile, BrowserSession
+        from browser_use import Agent, BrowserProfile, BrowserSession, Tools
         from browser_use.llm import ChatOpenAI
     except ImportError as e:
         logger.error("browser-use not installed: %s — falling back to legacy", e)
         return await _run_apply(session_id, job_url, job, prefs)
+
+    # Trim tool schema — Anthropic via Azure rejects oversized grammars.
+    # Keep only what's needed for job-application flows.
+    _EXCLUDE = [
+        "close", "evaluate", "find_elements", "find_text", "go_back",
+        "read_file", "replace_file", "save_as_pdf", "screenshot",
+        "search", "search_page", "send_keys", "switch", "write_file",
+        "extract",
+    ]
+    tools = Tools(exclude_actions=_EXCLUDE)
 
     tk_key = os.getenv("TOKENROUTER_API_KEY")
     tk_url = os.getenv("TOKENROUTER_BASE_URL", "https://api.tokenrouter.com/v1")
@@ -957,12 +967,12 @@ If you hit a login wall, captcha, or cannot proceed, call done(success=false) wi
             task=fill_task,
             llm=llm,
             browser_session=bsession,
+            tools=tools,
             register_new_step_callback=step_cb,
             register_should_stop_callback=should_stop_cb,
             max_failures=3,
             use_vision=True,
             max_actions_per_step=2,
-            # Flash mode = simpler tool schemas (avoids Anthropic grammar-compiler limits)
             flash_mode=True,
             use_thinking=False,
             use_judge=False,
@@ -1012,6 +1022,7 @@ If submission fails or you see validation errors, call done(success=false) with 
             task=submit_task,
             llm=llm,
             browser_session=bsession,
+            tools=tools,
             register_new_step_callback=step_cb,
             max_failures=2,
             use_vision=True,

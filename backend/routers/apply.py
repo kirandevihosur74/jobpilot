@@ -898,19 +898,30 @@ async def _run_apply_v2(session_id: str, job_url: str, job: dict, prefs: dict):
         event_hooks={"request": [_request_hook]},
         timeout=httpx.Timeout(120.0),
     )
-    # OpenAI models via TokenRouter — Anthropic via Azure has a "compiled grammar
-    # too large" limit. gpt-4o-mini hallucinates stale DOM indices and loops.
-    # gpt-5.2 reasons properly about DOM state changes between steps.
-    # Override with APPLY_MODEL env var.
     apply_model = os.getenv("APPLY_MODEL", "openai/gpt-5.2")
     llm = ChatOpenAI(
         model=apply_model,
         api_key=tk_key,
         base_url=tk_url,
         http_client=sanitized_http,
-        temperature=0.2,
+        temperature=0,        # deterministic — kills creative DOM-index guessing
     )
     logger.info("TokenRouter LLM ready (model=%s, schema sanitizer active)", apply_model)
+
+    # Anti-hallucination guardrails appended to browser-use's system prompt
+    ANTI_HALLUCINATION = """
+CRITICAL ANTI-HALLUCINATION RULES (override any conflicting default behavior):
+1. ELEMENT INDICES CHANGE BETWEEN STEPS. Never reuse an index from a previous step.
+   Always read the CURRENT screenshot/DOM and pick the index visible NOW.
+2. If you see "Element index N not available" — STOP retrying that index.
+   Re-examine the current page and find the field by its label, not by old index.
+3. NEVER use index 0 or 1 unless those exact numbers appear in the current DOM list.
+4. If the same action fails 2 times in a row → call done(success=False, "stuck on X").
+   Do NOT loop trying the same thing.
+5. NEVER invent field values not in the candidate info above.
+6. Before each action, verify the element is in the CURRENT screenshot.
+7. If page is blank / loading → call wait(3) ONCE, then re-evaluate. Don't spam waits.
+"""
 
     candidate = _build_candidate_brief(prefs)
     has_resume = bool(resume_path)
@@ -996,12 +1007,14 @@ STEP 6 — STOP
             tools=tools,
             register_new_step_callback=step_cb,
             register_should_stop_callback=should_stop_cb,
-            max_failures=3,
+            max_failures=2,                 # die fast on repeated errors
             use_vision=True,
-            max_actions_per_step=2,
+            vision_detail_level="high",     # pixel-accurate screenshots
+            max_actions_per_step=1,         # force DOM refresh between every action
             flash_mode=True,
             use_thinking=False,
             use_judge=False,
+            extend_system_message=ANTI_HALLUCINATION,
             available_file_paths=[resume_path] if resume_path else None,
         )
 
@@ -1053,10 +1066,12 @@ If submission fails or you see validation errors, call done(success=false) with 
             register_new_step_callback=step_cb,
             max_failures=2,
             use_vision=True,
-            max_actions_per_step=2,
+            vision_detail_level="high",
+            max_actions_per_step=1,
             flash_mode=True,
             use_thinking=False,
             use_judge=False,
+            extend_system_message=ANTI_HALLUCINATION,
         )
         await submit_agent.run(max_steps=8)
 

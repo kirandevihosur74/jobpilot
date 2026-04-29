@@ -898,11 +898,11 @@ async def _run_apply_v2(session_id: str, job_url: str, job: dict, prefs: dict):
         event_hooks={"request": [_request_hook]},
         timeout=httpx.Timeout(120.0),
     )
-    # Use GPT-4.1 for browser-use — Anthropic via TokenRouter (Azure backend)
-    # has a hard "compiled grammar too large" limit that breaks browser-use's
-    # tool schema. GPT-4.1 handles the same schema natively.
-    # Can override via APPLY_MODEL env var (e.g. "anthropic/claude-sonnet-4.6")
-    apply_model = os.getenv("APPLY_MODEL", "openai/gpt-4.1")
+    # OpenAI models via TokenRouter — Anthropic-via-Azure has a "compiled grammar
+    # too large" limit that breaks browser-use's tool schema. Default = gpt-4o-mini
+    # (cheap, fast, excellent function-calling). Override with APPLY_MODEL env var.
+    # Verified TokenRouter routes: openai/gpt-4o-mini, openai/gpt-5.2, openai/gpt-5.4
+    apply_model = os.getenv("APPLY_MODEL", "openai/gpt-4o-mini")
     llm = ChatOpenAI(
         model=apply_model,
         api_key=tk_key,

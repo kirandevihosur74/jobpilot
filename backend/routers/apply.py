@@ -1111,6 +1111,82 @@ If submission fails or you see validation errors, call done(success=false) with 
                 pass
 
 
+# ── Claude Code skill subprocess runner (delegates to neonwatty's job-apply) ─
+async def _run_apply_skill(session_id: str, job_url: str, job: dict, prefs: dict):
+    """Spawn `claude -p '/job-apply <url>'` subprocess. Streams output → session."""
+    session = _sessions[session_id]
+    abort_event: asyncio.Event = session["_abort_event"]
+
+    resume_path = _get_resume_path()
+    # Build the prompt with resume hint so skill knows which file to upload
+    resume_hint = f"\nResume: {resume_path}" if resume_path else ""
+    prompt = f"/job-apply {job_url}{resume_hint}"
+
+    session["status"] = STATUS["NAVIGATING"]
+    session["message"] = "Spawning Claude Code with /job-apply skill…"
+    logger.info("[%s] claude -p invoked: %s", session_id, prompt[:120])
+
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            "claude", "-p", prompt,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),  # backend/
+        )
+        session["_claude_proc"] = proc
+        session["status"] = STATUS["FILLING"]
+
+        # Stream stdout line by line → status message
+        output_buffer = []
+        while True:
+            if abort_event.is_set():
+                proc.kill()
+                session["status"] = STATUS["ABORTED"]
+                session["message"] = "Aborted by user."
+                return
+            try:
+                line = await asyncio.wait_for(proc.stdout.readline(), timeout=5.0)
+            except asyncio.TimeoutError:
+                continue
+            if not line:
+                break
+            text = line.decode(errors="ignore").rstrip()
+            if text:
+                output_buffer.append(text)
+                # Update status message with last meaningful line
+                if any(k in text.lower() for k in ("uploading", "filling", "navigating",
+                                                    "clicking", "submitted", "complete")):
+                    session["message"] = text[:200]
+                logger.info("[%s] claude: %s", session_id, text[:200])
+
+        rc = await proc.wait()
+        full_output = "\n".join(output_buffer)[-3000:]   # last 3KB
+
+        if rc == 0:
+            # Skill exited cleanly — assume submitted
+            session["status"] = STATUS["SUBMITTED"]
+            session["message"] = "Skill completed. Check terminal output for confirmation."
+        else:
+            session["status"] = STATUS["FAILED"]
+            session["error"] = f"claude -p exited with code {rc}"
+            session["message"] = f"Skill failed (exit {rc}). Last output:\n{full_output[-500:]}"
+
+        logger.info("[%s] claude exit=%d output_len=%d", session_id, rc, len(full_output))
+
+    except FileNotFoundError:
+        session["status"] = STATUS["FAILED"]
+        session["error"] = "claude CLI not found"
+        session["message"] = (
+            "Claude Code CLI not installed. Install: npm install -g @anthropic-ai/claude-code"
+        )
+        logger.error("[%s] claude binary missing on PATH", session_id)
+    except Exception as e:
+        session["status"] = STATUS["FAILED"]
+        session["error"] = str(e)
+        session["message"] = f"Skill spawn failed: {e}"
+        logger.error("[%s] subprocess error: %s", session_id, e, exc_info=True)
+
+
 # ── endpoints ────────────────────────────────────────────────────────────────
 @router.post("/start")
 async def start_apply(req: ApplyRequest):
@@ -1118,14 +1194,22 @@ async def start_apply(req: ApplyRequest):
     _sessions[session_id] = {
         "status": STATUS["STARTING"],
         "screenshot": None,
-        "message": "Starting browser…",
+        "message": "Starting…",
         "error": None,
         "_confirm_event": asyncio.Event(),
         "_abort_event": asyncio.Event(),
     }
-    # Use browser-use based v2 runner (universal, robust). Falls back to legacy on import error.
-    asyncio.create_task(_run_apply_v2(session_id, req.job_url, req.job, req.prefs))
-    logger.info("Apply session started: %s", session_id)
+
+    # Two runners — pick via APPLY_RUNNER env var:
+    #   "skill"  (default) → spawns `claude -p /job-apply` subprocess (uses neonwatty plugin)
+    #   "browser_use"      → uses inline browser-use Agent (legacy)
+    runner = os.getenv("APPLY_RUNNER", "skill").lower()
+    if runner == "browser_use":
+        asyncio.create_task(_run_apply_v2(session_id, req.job_url, req.job, req.prefs))
+        logger.info("Apply session started (browser-use): %s", session_id)
+    else:
+        asyncio.create_task(_run_apply_skill(session_id, req.job_url, req.job, req.prefs))
+        logger.info("Apply session started (claude skill): %s", session_id)
     return {"session_id": session_id}
 
 

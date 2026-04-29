@@ -898,11 +898,11 @@ async def _run_apply_v2(session_id: str, job_url: str, job: dict, prefs: dict):
         event_hooks={"request": [_request_hook]},
         timeout=httpx.Timeout(120.0),
     )
-    # OpenAI models via TokenRouter — Anthropic-via-Azure has a "compiled grammar
-    # too large" limit that breaks browser-use's tool schema. Default = gpt-4o-mini
-    # (cheap, fast, excellent function-calling). Override with APPLY_MODEL env var.
-    # Verified TokenRouter routes: openai/gpt-4o-mini, openai/gpt-5.2, openai/gpt-5.4
-    apply_model = os.getenv("APPLY_MODEL", "openai/gpt-4o-mini")
+    # OpenAI models via TokenRouter — Anthropic via Azure has a "compiled grammar
+    # too large" limit. gpt-4o-mini hallucinates stale DOM indices and loops.
+    # gpt-5.2 reasons properly about DOM state changes between steps.
+    # Override with APPLY_MODEL env var.
+    apply_model = os.getenv("APPLY_MODEL", "openai/gpt-5.2")
     llm = ChatOpenAI(
         model=apply_model,
         api_key=tk_key,
@@ -1006,7 +1006,8 @@ STEP 6 — STOP
         )
 
         session["status"] = STATUS["FILLING"]
-        await fill_agent.run(max_steps=40)
+        # Cap max_steps to prevent runaway loops on weaker models
+        await fill_agent.run(max_steps=20)
 
         if abort_event.is_set():
             session["status"] = STATUS["ABORTED"]
